@@ -1,33 +1,25 @@
-'use client';
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+'use client'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
 export default function LogoutPage() {
-  const router = useRouter();
+  const router = useRouter()
 
   useEffect(() => {
-    // Clear user data from localStorage
-    localStorage.removeItem('user');
+    // Clear session
+    localStorage.removeItem('user')
+    localStorage.removeItem('rememberMe')
     
-    // Redirect to login page after a short delay
-    const timer = setTimeout(() => {
-      router.push('/');
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [router]);
+    // Redirect to login
+    router.push('/login')
+  }, [router])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Logout Berhasil</h2>
-        <p className="text-gray-600">Anda akan diarahkan ke halaman login...</p>
+    <div className="logout-page">
+      <div className="logout-container">
+        <h2>Logging out...</h2>
+        <p>Anda sedang keluar dari sistem</p>
       </div>
     </div>
-  );
+  )
 }

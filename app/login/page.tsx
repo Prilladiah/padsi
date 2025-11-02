@@ -1,195 +1,163 @@
-'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Lock, User } from 'lucide-react';
+'use client'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
+  const router = useRouter()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
 
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
-    // Simulasi proses login
-    setTimeout(() => {
-      if (username && password) {
-        // Simpan data user ke localStorage
-        const userData = {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    
+    try {
+      // Validasi sederhana
+      if (username === 'manager_sanguku' && password === 'sanguku70945') {
+        localStorage.setItem('user', JSON.stringify({
           username,
-          role: username === 'manager' ? 'manager' : 'staff',
-          nama: username === 'manager' ? 'Manager Sanguku' : 'Staff Sanguku'
-        };
-        
-        localStorage.setItem('user', JSON.stringify(userData));
-        
-        if (rememberMe) {
-          localStorage.setItem('rememberMe', 'true');
-        }
-        
-        alert('Login berhasil!');
-        router.push('/dashboard');
+          role: 'manager',
+          nama: 'Arel Lafito Dinoris'
+        }))
+        router.push('/dashboard')
+      } else if (username === 'staff_sanguku' && password === 'sanguku70945') {
+        localStorage.setItem('user', JSON.stringify({
+          username,
+          role: 'staff',
+          nama: 'Prilla Diah Mawarni'
+        }))
+        router.push('/dashboard')
       } else {
-        alert('Username dan password harus diisi!');
+        setError('Username atau password salah!')
       }
-      setIsLoading(false);
-    }, 1000);
-  };
+    } catch (error) {
+      setError('Terjadi kesalahan saat login')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        {/* Header */}
-        <div className="text-center">
-          <div className="mx-auto w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center mb-4">
-            <Lock className="w-10 h-10 text-white" />
-          </div>
-          <h2 className="mt-2 text-3xl font-bold text-gray-900">
-            Selamat Datang di SIPS
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Sistem Informasi Pengelolaan Sanguku
-          </p>
-          <p className="mt-1 text-xs text-gray-500">
-            Masuk dengan akun Anda untuk melanjutkan
-          </p>
+    <div style={{ 
+      minHeight: '100vh', 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      padding: '20px'
+    }}>
+      <div style={{
+        background: 'white',
+        padding: '40px',
+        borderRadius: '10px',
+        boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
+        width: '100%',
+        maxWidth: '400px'
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+          <h1 style={{ color: '#667eea', fontSize: '2.5rem', marginBottom: '5px' }}>SIPS</h1>
+          <p style={{ color: '#666', fontSize: '0.9rem' }}>Sistem Informasi Pengelolaan Sanguku</p>
         </div>
-
-        {/* Login Form */}
-        <form className="mt-8 space-y-6 bg-white p-8 rounded-2xl shadow-lg" onSubmit={handleLogin}>
-          <div className="space-y-4">
-            {/* Username Field */}
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-                Username
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="h-5 w-5 text-gray-400" />
-                </div>
-                <input
-                  id="username"
-                  name="username"
-                  type="text"
-                  required
-                  className="appearance-none relative block w-full pl-10 pr-3 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                  placeholder="Masukkan username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
-              </div>
+        
+        <form onSubmit={handleLogin}>
+          <h2 style={{ textAlign: 'center', marginBottom: '30px', color: '#333' }}>Welcome back!</h2>
+          
+          {error && (
+            <div style={{
+              background: '#f8d7da',
+              color: '#721c24',
+              padding: '15px',
+              borderRadius: '5px',
+              marginBottom: '20px',
+              border: '1px solid #f5c6cb'
+            }}>
+              {error}
             </div>
-
-            {/* Password Field */}
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-gray-400" />
-                </div>
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  required
-                  className="appearance-none relative block w-full pl-10 pr-10 py-3 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                  placeholder="Masukkan password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
-                  ) : (
-                    <Eye className="h-5 w-5 text-gray-400 hover:text-gray-600" />
-                  )}
-                </button>
-              </div>
-            </div>
+          )}
+          
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', color: '#555' }}>
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Masukkan username"
+              required
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '1px solid #ddd',
+                borderRadius: '5px',
+                fontSize: '1rem'
+              }}
+            />
           </div>
-
-          {/* Remember Me & Forgot Password */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <input
-                id="remember-me"
-                name="remember-me"
-                type="checkbox"
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-              />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900">
-                Ingat saya
-              </label>
-            </div>
-
-            <div className="text-sm">
-              <a href="#" className="font-medium text-blue-600 hover:text-blue-500">
-                Lupa password?
-              </a>
-            </div>
+          
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', color: '#555' }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Masukkan password"
+              required
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '1px solid #ddd',
+                borderRadius: '5px',
+                fontSize: '1rem'
+              }}
+            />
           </div>
-
-          {/* Demo Accounts Info */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-blue-900 mb-2">Akun Demo:</h4>
-            <div className="text-xs text-blue-800 space-y-1">
-              <p><strong>Manager:</strong> username: manager, password: (apa saja)</p>
-              <p><strong>Staff:</strong> username: staff, password: (apa saja)</p>
-            </div>
-          </div>
-
-          {/* Login Button */}
-          <div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
-            >
-              {isLoading ? (
-                <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Memproses...
-                </div>
-              ) : (
-                'Masuk ke Sistem'
-              )}
-            </button>
-          </div>
-
-          {/* Additional Info */}
-          <div className="text-center">
-            <p className="text-xs text-gray-500">
-              Dengan masuk, Anda menyetujui{' '}
-              <a href="#" className="text-blue-600 hover:text-blue-500">
-                Syarat & Ketentuan
-              </a>{' '}
-              dan{' '}
-              <a href="#" className="text-blue-600 hover:text-blue-500">
-                Kebijakan Privasi
-              </a>
-            </p>
-          </div>
+          
+          <button 
+            type="submit" 
+            disabled={loading}
+            style={{
+              width: '100%',
+              padding: '12px 24px',
+              background: '#667eea',
+              color: 'white',
+              border: 'none',
+              borderRadius: '5px',
+              fontSize: '1rem',
+              cursor: 'pointer'
+            }}
+          >
+            {loading ? 'Logging in...' : 'Login'}
+          </button>
         </form>
 
-        {/* Footer */}
-        <div className="text-center">
-          <p className="text-xs text-gray-500">
-            &copy; 2025 SIPS - Universitas Atma Jaya Yogyakarta. All rights reserved.
-          </p>
+        <div style={{ 
+          background: 'rgba(255,255,255,0.1)', 
+          padding: '20px', 
+          borderRadius: '10px',
+          marginTop: '20px',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <h4 style={{ color: 'white', marginBottom: '15px', textAlign: 'center' }}>Informasi Login (Testing):</h4>
+          <div style={{ display: 'grid', gap: '15px' }}>
+            <div style={{ background: 'rgba(255,255,255,0.9)', padding: '15px', borderRadius: '8px', borderLeft: '4px solid #667eea' }}>
+              <strong>Manager</strong>
+              <p>Username: manager_sanguku</p>
+              <p>Password: sanguku70945</p>
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.9)', padding: '15px', borderRadius: '8px', borderLeft: '4px solid #6c757d' }}>
+              <strong>Staff</strong>
+              <p>Username: staff_sanguku</p>
+              <p>Password: sanguku70945</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  );
+  )
 }
