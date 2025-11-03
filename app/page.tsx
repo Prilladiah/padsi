@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,19 +26,23 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8">
+    <div 
+      className="min-h-screen flex items-center justify-center"
+      style={{
+        backgroundImage: 'url("/loginsanguku.png")',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
+      }}
+    >
+      {/* Overlay untuk membuat konten lebih mudah dibaca */}
+      <div className="absolute inset-0 bg-black bg-opacity-30"></div>
+      
+      <div className="max-w-md w-full bg-blue-700 bg-opacity-20 backdrop-blur-md rounded-lg shadow-xl p-8 relative z-10 border border-blue-200 border-opacity-30">
+        {/* Header dengan Welcome back */}
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-800">SIPS</h1>
-          <p className="text-gray-600">Sanguku</p>
-        </div>
-        
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold text-yellow-800 mb-2">Akun Demo:</h3>
-          <div className="text-sm text-yellow-700 space-y-1">
-            <p><strong>Manager:</strong> manager / manager123</p>
-            <p><strong>Staff:</strong> staff / staff123</p>
-          </div>
+          <h2 className="text-2xl font-bold text-white mb-2">Welcome back!</h2>
+          <p className="text-blue-100 text-sm">Please enter your details to sign in</p>
         </div>
         
         <form onSubmit={handleLogin} className="space-y-6">
@@ -47,39 +52,54 @@ export default function LoginPage() {
             </div>
           )}
           
+          {/* Username Section */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-white mb-2">
               Username
             </label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Masukkan username"
+              className="w-full px-3 py-2 bg-white bg-opacity-20 border border-blue-300 border-opacity-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent text-white placeholder-blue-200"
+              placeholder="Enter your username"
               required
             />
           </div>
           
+          {/* Password Section */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-white mb-2">
               Password
             </label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Masukkan password"
+              className="w-full px-3 py-2 bg-white bg-opacity-20 border border-blue-300 border-opacity-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:border-transparent text-white placeholder-blue-200"
+              placeholder="Enter your password"
               required
             />
+          </div>
+
+          {/* Remember me */}
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+            />
+            <label className="ml-2 text-sm font-medium text-white">
+              Remember me
+            </label>
           </div>
           
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            className="w-full bg-white text-blue-600 py-3 px-4 rounded-lg hover:bg-blue-50 transition-colors font-medium text-lg"
           >
-            Login
+            Log in
           </button>
         </form>
       </div>

@@ -13,7 +13,7 @@ interface StokFormProps {
 export default function StokForm({ item, onSubmit, onCancel }: StokFormProps) {
   const [formData, setFormData] = useState({
     nama: item?.nama || '',
-    kategori: item?.kategori || '',
+    supplier: item?.supplier || '',
     jumlah: item?.jumlah || 0,
     satuan: item?.satuan || '',
     harga: item?.harga || 0,
@@ -36,7 +36,7 @@ export default function StokForm({ item, onSubmit, onCancel }: StokFormProps) {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nama Barang
+                Nama Stok
               </label>
               <input
                 type="text"
@@ -49,21 +49,16 @@ export default function StokForm({ item, onSubmit, onCancel }: StokFormProps) {
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Kategori
+                Supplier Stok
               </label>
-              <select
-                value={formData.kategori}
-                onChange={(e) => setFormData({ ...formData, kategori: e.target.value })}
+              <input
+                type="text"
+                value={formData.supplier}
+                onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Masukkan supplier stok"
                 required
-              >
-                <option value="">Pilih Kategori</option>
-                <option value="Plastik">Plastik</option>
-                <option value="Kertas">Kertas</option>
-                <option value="Logam">Logam</option>
-                <option value="Kaca">Kaca</option>
-                <option value="Organik">Organik</option>
-              </select>
+              />
             </div>
             
             <div className="grid grid-cols-2 gap-4">
