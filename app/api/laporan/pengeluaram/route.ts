@@ -1,12 +1,10 @@
+// app/api/laporan/pengeluaran/route.ts
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-
-    const startDate = searchParams.get('start_date');
-    const endDate = searchParams.get('end_date');
     const limit = Number(searchParams.get('limit')) || 100;
 
     // Query untuk mengambil data pengeluaran dari stok
@@ -16,32 +14,17 @@ export async function GET(request: Request) {
         'Pengeluaran' as jenis_laporan,
         s.tanggal_stok as periode_laporan,
         'Toko Utama' as unit_bisnis,
-        (s.jumlah_stok * s.Harga_stok) as total_pengeluaran,
+        (s.jumlah_stok::numeric * s.Harga_stok::numeric) as total_pengeluaran,
         0 as total_pendapatan,
-        s.id_stok,
-        s.nama_stok,
-        s.supplier_stok as kategori,
-        s.jumlah_stok,
-        s.Harga_stok as harga_satuan
+        s.id_stok
       FROM stok s
-      WHERE 1=1
+      WHERE s.jumlah_stok::numeric > 0
     `;
 
     const params: any[] = [];
-    let paramCount = 1;
-
-    if (startDate) {
-      sqlQuery += ` AND s.tanggal_stok >= $${paramCount++}`;
-      params.push(startDate);
-    }
-
-    if (endDate) {
-      sqlQuery += ` AND s.tanggal_stok <= $${paramCount++}`;
-      params.push(endDate);
-    }
 
     sqlQuery += ` ORDER BY s.tanggal_stok DESC, s.id_stok DESC`;
-    sqlQuery += ` LIMIT $${paramCount++}`;
+    sqlQuery += ` LIMIT $1`;
     params.push(limit);
 
     console.log('Executing pengeluaran dari stok query:', sqlQuery);
@@ -49,10 +32,20 @@ export async function GET(request: Request) {
 
     const result = await query(sqlQuery, params);
 
+    const transformedData = result.rows.map((row: any) => ({
+      id_laporan: row.id_laporan,
+      jenis_laporan: row.jenis_laporan,
+      periode_laporan: row.periode_laporan,
+      unit_bisnis: row.unit_bisnis,
+      total_pengeluaran: parseFloat(row.total_pengeluaran) || 0,
+      total_pendapatan: 0,
+      id_stok: row.id_stok
+    }));
+
     return NextResponse.json({
       success: true,
-      data: result.rows,
-      total: result.rows.length
+      data: transformedData,
+      total: transformedData.length
     });
 
   } catch (error: any) {

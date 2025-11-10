@@ -24,47 +24,61 @@ export default function LaporanPengeluaranPage() {
         setLoading(true);
         setError('');
         
+        console.log('🔄 Fetching data from laporan API...');
+        
+        // Coba ambil dari API laporan utama
         const response = await fetch('/api/laporan?jenis=Pengeluaran&limit=100');
         
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          const errorText = await response.text();
+          console.error('❌ API Error:', errorText);
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
         
         const result = await response.json();
+        console.log('📦 API Response:', result);
         
-        if (result.success && result.data.length > 0) {
-          setData(result.data);
-        } else {
-          console.log('Tidak ada data di laporan utama, mencoba dari stok...');
-          const stokResponse = await fetch('/api/stok?limit=100');
-          
-          if (!stokResponse.ok) {
-            throw new Error(`HTTP ${stokResponse.status}`);
-          }
-          
-          const stokResult = await stokResponse.json();
-          
-          if (stokResult.success) {
-            // Transform data stok menjadi format laporan pengeluaran - HAPUS kategori dan nama_stok
-            const transformedData: LaporanData[] = stokResult.data.map((item: any, index: number) => ({
-              id_laporan: index + 1,
-              jenis_laporan: 'Pengeluaran',
-              periode_laporan: item.tanggal_stok || new Date().toISOString().split('T')[0],
-              unit_bisnis: 'Toko Utama',
-              total_pengeluaran: (item.jumlah_stok || 0) * (item.Harga_stok || 0),
-              total_pendapatan: 0,
-              id_stok: item.id_stok
-              // HAPUS: kategori, nama_stok, jumlah_stok, harga_satuan
-            }));
-            
-            setData(transformedData);
+        if (result.success) {
+          if (result.data.length > 0) {
+            setData(result.data);
+            console.log(`✅ Loaded ${result.data.length} records from laporan table`);
           } else {
-            setError('Tidak ada data pengeluaran yang ditemukan');
+            // Jika tidak ada data, coba dari fallback
+            console.log('📭 No data in laporan table, trying fallback...');
+            await fetchFallbackData();
           }
+        } else {
+          throw new Error(result.error || 'Unknown API error');
         }
+        
       } catch (err: any) {
-        console.error('Fetch error:', err);
-        setError('Terjadi kesalahan saat mengambil data: ' + err.message);
+        console.error('❌ Main fetch error:', err);
+        // Coba fallback
+        await fetchFallbackData();
+      }
+    }
+
+    async function fetchFallbackData() {
+      try {
+        console.log('🔄 Trying fallback API...');
+        const fallbackResponse = await fetch('/api/laporan/pengeluaran?limit=100');
+        
+        if (!fallbackResponse.ok) {
+          const errorText = await fallbackResponse.text();
+          throw new Error(`HTTP ${fallbackResponse.status}: ${errorText}`);
+        }
+        
+        const fallbackResult = await fallbackResponse.json();
+        
+        if (fallbackResult.success) {
+          setData(fallbackResult.data);
+          console.log(`✅ Loaded ${fallbackResult.data.length} records from stok fallback`);
+        } else {
+          setError(fallbackResult.error || 'Tidak ada data pengeluaran yang ditemukan');
+        }
+      } catch (fallbackErr: any) {
+        console.error('❌ Fallback also failed:', fallbackErr);
+        setError('Terjadi kesalahan saat mengambil data: ' + fallbackErr.message);
       } finally {
         setLoading(false);
       }
@@ -73,6 +87,7 @@ export default function LaporanPengeluaranPage() {
     fetchData();
   }, []);
 
+  // ... rest of your component (loading, error, and table rendering) remains the same
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -81,7 +96,7 @@ export default function LaporanPengeluaranPage() {
           <h1 className="text-2xl font-bold mb-4">Laporan Pengeluaran</h1>
           <div className="flex items-center justify-center p-8">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-            <span className="ml-3 text-gray-600">Memuat data...</span>
+            <span className="ml-3 text-gray-600">Memuat data dari database...</span>
           </div>
         </div>
       </div>
@@ -129,7 +144,7 @@ export default function LaporanPengeluaranPage() {
             <div className="text-6xl mb-4">📊</div>
             <p className="text-lg font-medium text-gray-600">Tidak ada data pengeluaran</p>
             <p className="text-sm text-gray-500 mt-2">
-              Data pengeluaran akan muncul ketika ada pembelian stok
+              Data pengeluaran akan muncul ketika ada transaksi pengeluaran di database
             </p>
           </div>
         ) : (
@@ -157,7 +172,7 @@ export default function LaporanPengeluaranPage() {
               </div>
             </div>
 
-            {/* Table - HAPUS kolom Kategori dan Keterangan */}
+            {/* Table */}
             <div className="overflow-x-auto">
               <table className="min-w-full">
                 <thead className="bg-gray-100">
