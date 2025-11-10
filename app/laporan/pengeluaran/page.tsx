@@ -1,388 +1,200 @@
-// app/laporan/pengeluaran/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Header from '@/components/layout/header';
 
+interface LaporanData {
+  id_laporan: number;
+  jenis_laporan: string;
+  periode_laporan: string;
+  unit_bisnis: string;
+  total_pengeluaran: number;
+  total_pendapatan: number;
+  id_stok: number;
+  kategori: string;
+  nama_stok: string;
+  jumlah_stok: number;
+  harga_satuan: number;
+}
+
 export default function LaporanPengeluaranPage() {
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
+  const [data, setData] = useState<LaporanData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const pengeluaranData = [
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Cafe',
-      stok: 'Kopi',
-      jumlah: 1,
-      metodePembayaran: 'QRIS',
-      subTotal: 150000
-    },
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Badminton',
-      stok: 'Raket',
-      jumlah: 10,
-      metodePembayaran: 'Tunai',
-      subTotal: 500000
-    },
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Play Station',
-      stok: 'Kabel',
-      jumlah: 7,
-      metodePembayaran: 'QRIS',
-      subTotal: 100000
-    },
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Cafe',
-      stok: 'Kopi',
-      jumlah: 8,
-      metodePembayaran: 'QRIS',
-      subTotal: 150000
-    },
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Cafe',
-      stok: 'Kopi',
-      jumlah: 8,
-      metodePembayaran: 'QRIS',
-      subTotal: 150000
-    },
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Cafe',
-      stok: 'Kopi',
-      jumlah: 8,
-      metodePembayaran: 'QRIS',
-      subTotal: 150000
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        setLoading(true);
+        setError('');
+        
+        // Coba ambil dari API laporan utama dulu
+        const response = await fetch('/api/laporan?jenis=Pengeluaran&limit=100');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success && result.data.length > 0) {
+          setData(result.data);
+        } else {
+          // Jika tidak ada data, coba ambil dari stok
+          console.log('Tidak ada data di laporan utama, mencoba dari stok...');
+          const stokResponse = await fetch('/api/stok?limit=100');
+          
+          if (!stokResponse.ok) {
+            throw new Error(`HTTP ${stokResponse.status}`);
+          }
+          
+          const stokResult = await stokResponse.json();
+          
+          if (stokResult.success) {
+            // Transform data stok menjadi format laporan pengeluaran
+            const transformedData: LaporanData[] = stokResult.data.map((item: any, index: number) => ({
+              id_laporan: index + 1,
+              jenis_laporan: 'Pengeluaran',
+              periode_laporan: item.tanggal_stok || new Date().toISOString().split('T')[0],
+              unit_bisnis: 'Toko Utama',
+              total_pengeluaran: (item.jumlah_stok || 0) * (item.Harga_stok || 0),
+              total_pendapatan: 0,
+              id_stok: item.id_stok,
+              kategori: item.supplier_stok || 'Umum',
+              nama_stok: item.nama_stok || 'Tidak ada nama',
+              jumlah_stok: item.jumlah_stok || 0,
+              harga_satuan: item.Harga_stok || 0
+            }));
+            
+            setData(transformedData);
+          } else {
+            setError('Tidak ada data pengeluaran yang ditemukan');
+          }
+        }
+      } catch (err: any) {
+        console.error('Fetch error:', err);
+        setError('Terjadi kesalahan saat mengambil data: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
     }
-  ];
 
-  const totalPengeluaran = pengeluaranData.reduce((sum, item) => sum + item.subTotal, 0);
+    fetchData();
+  }, []);
 
-  // Pagination
-  const totalPages = Math.ceil(pengeluaranData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentData = pengeluaranData.slice(startIndex, startIndex + itemsPerPage);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
-
-  // Fungsi untuk download laporan sebagai PDF
-  const downloadPDF = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const tableHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Laporan Pengeluaran - Sanguku</title>
-        <style>
-          body { 
-            font-family: Arial, sans-serif; 
-            margin: 20px; 
-            color: #333;
-          }
-          .header { 
-            text-align: center; 
-            margin-bottom: 30px;
-            border-bottom: 2px solid #333;
-            padding-bottom: 20px;
-          }
-          .header h1 { 
-            margin: 0; 
-            font-size: 24px;
-            color: #1f2937;
-          }
-          .info {
-            margin-bottom: 20px;
-            font-size: 14px;
-            color: #6b7280;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-          }
-          th {
-            background-color: #1f2937;
-            color: white;
-            padding: 12px;
-            text-align: left;
-            font-weight: bold;
-            border: 1px solid #374151;
-          }
-          td {
-            padding: 10px;
-            border: 1px solid #d1d5db;
-          }
-          .total-section {
-            background-color: #fef2f2;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-            border: 1px solid #fecaca;
-          }
-          .signature {
-            margin-top: 50px;
-            text-align: right;
-          }
-          .signature-line {
-            border-top: 1px solid #9ca3af;
-            padding-top: 60px;
-            width: 200px;
-            margin-left: auto;
-          }
-          .footer {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #6b7280;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>LAPORAN PENGELUARAN SANGUKU</h1>
-          <p>Sistem Informasi Pengelolaan Keuangan</p>
-        </div>
-
-        <div class="info">
-          <strong>Total Data:</strong> ${pengeluaranData.length} transaksi | 
-          <strong> Tanggal Cetak:</strong> ${new Date().toLocaleDateString('id-ID')}
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Tanggal</th>
-              <th>Unit Bisnis</th>
-              <th>Stok</th>
-              <th>Jumlah</th>
-              <th>Metode Pembayaran</th>
-              <th>Sub Total Pengeluaran</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${pengeluaranData.map(item => `
-              <tr>
-                <td>${item.tanggal}</td>
-                <td>${item.unitBisnis}</td>
-                <td>${item.stok}</td>
-                <td>${item.jumlah}</td>
-                <td>${item.metodePembayaran}</td>
-                <td>${formatCurrency(item.subTotal)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-
-        <div class="total-section">
-          <h3>TOTAL PENGELUARAN: ${formatCurrency(totalPengeluaran)}</h3>
-          <p>Dari ${pengeluaranData.length} transaksi pengeluaran</p>
-        </div>
-
-        <div class="signature">
-          <div class="signature-line">
-            <strong>Manager</strong><br>
-            Sanguku Management
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="p-6">
+          <h1 className="text-2xl font-bold mb-4">Laporan Pengeluaran</h1>
+          <div className="flex items-center justify-center p-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+            <span className="ml-3 text-gray-600">Memuat data...</span>
           </div>
         </div>
+      </div>
+    );
+  }
 
-        <div class="footer">
-          Laporan dihasilkan pada: ${new Date().toLocaleDateString('id-ID', {
-            day: '2-digit',
-            month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          })}<br>
-          SIPS - Sanguku Inventory Management System
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Header />
+        <div className="p-6">
+          <h1 className="text-2xl font-bold mb-4">Laporan Pengeluaran</h1>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+            <div className="text-red-500 text-6xl mb-4">❌</div>
+            <p className="text-red-700 font-medium mb-2">Gagal memuat data</p>
+            <p className="text-red-600 text-sm">{error}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Coba Lagi
+            </button>
+          </div>
         </div>
-      </body>
-      </html>
-    `;
+      </div>
+    );
+  }
 
-    printWindow.document.write(tableHtml);
-    printWindow.document.close();
-    
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
-  };
-
-  // Fungsi untuk download sebagai CSV
-  const downloadCSV = () => {
-    const headers = ['Tanggal', 'Unit Bisnis', 'Stok', 'Jumlah', 'Metode Pembayaran', 'Sub Total Pengeluaran'];
-    
-    const csvData = pengeluaranData.map(item => [
-      item.tanggal,
-      item.unitBisnis,
-      item.stok,
-      item.jumlah,
-      item.metodePembayaran,
-      item.subTotal
-    ]);
-
-    const csvContent = [
-      headers.join(','),
-      ...csvData.map(row => row.join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    
-    link.setAttribute('href', url);
-    link.setAttribute('download', `laporan-pengeluaran-sanguku-${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const totalPengeluaran = data.reduce((sum, item) => sum + (item.total_pengeluaran || 0), 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      
       <div className="p-6">
-        {/* Header dengan Tombol Download */}
-        <div className="flex justify-between items-center mb-8">
-          <div className="text-left">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Laporan Pengeluaran</h1>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={downloadCSV}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Download CSV</span>
-            </button>
-            <button
-              onClick={downloadPDF}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Download PDF</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Tabel Pengeluaran */}
-        <div className="bg-white rounded-lg shadow border overflow-hidden mb-6">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-blue-800">
-                <tr>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Tanggal
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Unit Bisnis
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Stok
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Jumlah
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Metode Pembayaran
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider">
-                    Sub Total Pengeluaran
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {currentData.map((item, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-r">
-                      {item.tanggal}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-r">
-                      {item.unitBisnis}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-r">
-                      {item.stok}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-r">
-                      {item.jumlah}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-r">
-                      {item.metodePembayaran}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold text-red-600">
-                      {formatCurrency(item.subTotal)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Pagination */}
         <div className="flex justify-between items-center mb-6">
+          <h1 className="text-2xl font-bold text-gray-800">Laporan Pengeluaran</h1>
           <div className="text-sm text-gray-600">
-            Menampilkan {startIndex + 1}-{Math.min(startIndex + itemsPerPage, pengeluaranData.length)} dari {pengeluaranData.length} transaksi
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-              className={`px-4 py-2 border border-gray-300 rounded-lg transition-colors ${
-                currentPage === 1 
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-              disabled={currentPage === totalPages}
-              className={`px-4 py-2 border border-gray-300 rounded-lg transition-colors ${
-                currentPage === totalPages 
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              Next
-            </button>
+            Total: {data.length} transaksi
           </div>
         </div>
+        
+        {data.length === 0 ? (
+          <div className="bg-white rounded-lg p-8 text-center">
+            <div className="text-6xl mb-4">📊</div>
+            <p className="text-lg font-medium text-gray-600">Tidak ada data pengeluaran</p>
+            <p className="text-sm text-gray-500 mt-2">
+              Data pengeluaran akan muncul ketika ada pembelian stok
+            </p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-lg shadow-md overflow-hidden">
+            {/* Summary Card */}
+            <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 text-white">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-red-100 text-sm">Total Pengeluaran</p>
+                  <p className="text-3xl font-bold">Rp {totalPengeluaran.toLocaleString('id-ID')}</p>
+                </div>
+                <div className="text-5xl opacity-80">💸</div>
+              </div>
+            </div>
 
-        {/* Total Pengeluaran */}
-        <div className="bg-white rounded-lg shadow border p-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Total Pengeluaran</h3>
-              <p className="text-gray-600 text-sm">Total keseluruhan pengeluaran</p>
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-red-600">
-                {formatCurrency(totalPengeluaran)}
-              </div>
-              <div className="text-sm text-gray-500">
-                dari {pengeluaranData.length} transaksi
-              </div>
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">ID</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Periode</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Unit Bisnis</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Kategori</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-700">Total Pengeluaran</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Keterangan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.map((item) => (
+                    <tr key={item.id_laporan} className="border-b hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-700">{item.id_laporan}</td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {new Date(item.periode_laporan).toLocaleDateString('id-ID')}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{item.unit_bisnis}</td>
+                      <td className="px-4 py-3 text-gray-600">{item.kategori}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-red-600">
+                        Rp {item.total_pengeluaran?.toLocaleString('id-ID')}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{item.nama_stok}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-100 font-bold">
+                  <tr>
+                    <td colSpan={4} className="px-4 py-3 text-right text-gray-800">TOTAL PENGELUARAN:</td>
+                    <td className="px-4 py-3 text-right text-red-600">
+                      Rp {totalPengeluaran.toLocaleString('id-ID')}
+                    </td>
+                    <td className="px-4 py-3"></td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
