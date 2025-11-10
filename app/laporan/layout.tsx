@@ -3,9 +3,11 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { User } from '@/types';
-import { auth } from '@/lib/auth';
-import Sidebar from '@/components/layout/Sidebar';
+
+type User = {
+  role: 'manager' | 'staff';
+  name?: string;
+};
 
 export default function LaporanLayout({
   children,
@@ -14,39 +16,46 @@ export default function LaporanLayout({
 }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const currentUser = auth.getCurrentUser();
-    
-    if (!currentUser) {
-      router.push('/');
-    } else if (currentUser.role !== 'manager') {
-      // Redirect staff ke halaman stok jika mencoba akses laporan
-      router.push('/stok');
-    } else {
-      setUser(currentUser);
-    }
+    const checkAuth = () => {
+      try {
+        const userStr = localStorage.getItem('current_user');
+        
+        if (!userStr) {
+          router.push('/');
+          return;
+        }
+
+        const userData = JSON.parse(userStr);
+        setUser(userData);
+        setIsLoading(false);
+        
+      } catch (error) {
+        localStorage.removeItem('current_user');
+        router.push('/');
+      }
+    };
+
+    checkAuth();
   }, [router]);
 
-  const handleLogout = () => {
-    auth.logout();
-    router.push('/');
-  };
-
-  if (!user) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-600">Loading...</div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+          <div className="text-gray-600 text-sm">Loading...</div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      <Sidebar user={user} onLogout={handleLogout} />
-      <main className="flex-1 overflow-auto">
-        {children}
-      </main>
+    <div className="min-h-screen bg-gray-50">
+      {/* Sidebar dan header akan dihandle oleh root layout */}
+      {children}
     </div>
   );
 }

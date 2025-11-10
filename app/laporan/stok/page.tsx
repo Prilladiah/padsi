@@ -1,411 +1,527 @@
-// app/laporan/stok/page.tsx
+// app/laporan/stok/page.tsx - READ ONLY VERSION
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { LaporanItem } from '@/types';
-import Header from '@/components/layout/header';
-import { useLocalStorage } from '@/components/hooks/uselocalstorage';
+import React, { useCallback, useEffect, useState } from 'react';
+import Header from '@/components/layout/header'; // Tambahkan import Header
 
-export default function LaporanStokPage() {
-  const [laporanData, setLaporanData] = useLocalStorage<LaporanItem[]>('laporanData', []);
-  const [filteredData, setFilteredData] = useState<LaporanItem[]>(laporanData);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
-  const tableRef = useRef<HTMLDivElement>(null);
+type UserRole = 'manager' | 'staff';
 
-  useEffect(() => {
-    let result = laporanData;
+interface User {
+  role: UserRole;
+  name?: string;
+}
 
-    // Filter berdasarkan tanggal
-    if (startDate && endDate) {
-      result = result.filter(item => 
-        item.tanggal >= startDate && item.tanggal <= endDate
-      );
+type StokItem = {
+  id_stok?: number;
+  nama_stok: string;
+  satuan_stok: string;
+  supplier_stok: string;
+  tanggal_stok: string;
+  jumlah_stok: number;
+  Harga_stok: number;
+};
+
+type Notif = {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  text: string;
+};
+
+function uid(prefix = 'u_') {
+  return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// Helper: Get current user from localStorage
+function getCurrentUser(): User {
+  try {
+    const userStr = localStorage.getItem('current_user');
+    if (userStr) {
+      return JSON.parse(userStr);
     }
 
-    setFilteredData(result);
-    setCurrentPage(1); // Reset ke halaman 1 ketika filter berubah
-  }, [startDate, endDate, laporanData]);
+    const username = localStorage.getItem('username');
+    if (!username) return { role: 'staff', name: 'Guest' };
 
-  // Hitung total sisa stok
-  const totalSisaStok = filteredData.reduce((sum, item) => sum + item.sisa_stok, 0);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentData = filteredData.slice(startIndex, startIndex + itemsPerPage);
-
-  // Format currency
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
-
-  // Format tanggal dari YYYY-MM-DD ke DD-MM-YYYY
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('id-ID', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-  };
-
-  // Fungsi untuk download laporan sebagai PDF
-  const downloadPDF = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const tableHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Laporan Stok - Sanguku</title>
-        <style>
-          body { 
-            font-family: Arial, sans-serif; 
-            margin: 20px; 
-            color: #333;
-          }
-          .header { 
-            text-align: center; 
-            margin-bottom: 30px;
-            border-bottom: 2px solid #333;
-            padding-bottom: 20px;
-          }
-          .header h1 { 
-            margin: 0; 
-            font-size: 24px;
-            color: #1f2937;
-          }
-          .filter-info {
-            margin-bottom: 20px;
-            font-size: 14px;
-            color: #6b7280;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-          }
-          th {
-            background-color: #1f2937;
-            color: white;
-            padding: 12px;
-            text-align: left;
-            font-weight: bold;
-            border: 1px solid #374151;
-          }
-          td {
-            padding: 10px;
-            border: 1px solid #d1d5db;
-          }
-          .total-section {
-            background-color: #f3f4f6;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-          }
-          .signature {
-            margin-top: 50px;
-            text-align: right;
-          }
-          .signature-line {
-            border-top: 1px solid #9ca3af;
-            padding-top: 60px;
-            width: 200px;
-            margin-left: auto;
-          }
-          .footer {
-            margin-top: 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #6b7280;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>LAPORAN STOK SANGUKU</h1>
-          <p>Sistem Informasi Pengelolaan Stok</p>
-        </div>
-
-        <div class="filter-info">
-          <strong>Periode:</strong> 
-          ${startDate && endDate 
-            ? `${formatDate(startDate)} - ${formatDate(endDate)}` 
-            : 'Semua Data'
-          } | 
-          <strong>Total Data:</strong> ${filteredData.length} item
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>Tanggal</th>
-              <th>Nama Produk</th>
-              <th>Harga</th>
-              <th>Supplier</th>
-              <th>Sisa Stok</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${filteredData.map(item => `
-              <tr>
-                <td>${formatDate(item.tanggal)}</td>
-                <td>${item.nama_barang}</td>
-                <td>${formatCurrency(item.harga_satuan)}</td>
-                <td>${item.supplier}</td>
-                <td>${item.sisa_stok} ${item.satuan}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-
-        <div class="total-section">
-          <h3>TOTAL SISA STOK: ${totalSisaStok} ITEMS</h3>
-          <p>Dari ${filteredData.length} produk yang tercatat</p>
-        </div>
-
-        <div class="signature">
-          <div class="signature-line">
-            <strong>Manager</strong><br>
-            Sanguku Management
-          </div>
-        </div>
-
-        <div class="footer">
-          Laporan dihasilkan pada: ${new Date().toLocaleDateString('id-ID', {
-            day: '2-digit',
-            month: 'long',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          })}<br>
-          SIPS - Sanguku Inventory Management System
-        </div>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.write(tableHtml);
-    printWindow.document.close();
+    const usernameLower = username.toLowerCase();
     
-    // Tunggu sebentar sebelum print
+    if (usernameLower === 'manager' || usernameLower.includes('manager')) {
+      return { role: 'manager', name: username };
+    } else {
+      return { role: 'staff', name: username };
+    }
+  } catch {
+    return { role: 'staff', name: 'Guest' };
+  }
+}
+
+async function fetchWithTimeout(input: RequestInfo, init?: RequestInit, timeout = 12000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(input, { signal: controller.signal, ...init });
+    clearTimeout(id);
+    return res;
+  } catch (err: any) {
+    clearTimeout(id);
+    if (err.name === 'AbortError') {
+      const e: any = new Error('Request aborted (timeout/network)');
+      e.name = 'AbortError';
+      throw e;
+    }
+    throw err;
+  }
+}
+
+export default function LaporanStokPage() {
+  const [currentUser, setCurrentUser] = useState<User>({ role: 'staff' });
+  const [stok, setStok] = useState<StokItem[]>([]);
+  const [filtered, setFiltered] = useState<StokItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [notifications, setNotifications] = useState<Notif[]>([]);
+  const [search, setSearch] = useState<string>('');
+  const [supplierFilter, setSupplierFilter] = useState<string>('Semua');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+
+  // ===== PERMISSION - LAPORAN ADALAH READ-ONLY =====
+  const isReadOnly = true; // Semua role hanya bisa VIEW
+  const canExport =  currentUser.role === 'manager';
+
+  const showNotification = useCallback((type: Notif['type'], text: string) => {
+    const newNotif: Notif = { id: uid('notif_'), type, text };
+    setNotifications(prev => [...prev, newNotif]);
+    
     setTimeout(() => {
-      printWindow.print();
-    }, 500);
-  };
+      setNotifications(prev => prev.filter(n => n.id !== newNotif.id));
+    }, 3000);
+  }, []);
 
-  // Fungsi untuk download sebagai CSV
-  const downloadCSV = () => {
-    const headers = ['Tanggal', 'Nama Produk', 'Harga', 'Supplier', 'Sisa Stok', 'Satuan'];
+  const fetchLaporanData = useCallback(async () => {
+    setIsLoading(true);
+
+    try {
+      const params = new URLSearchParams();
+      if (search) params.set('search', search);
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo) params.set('dateTo', dateTo);
+
+      const url = `/api/stok?${params.toString()}`;
+      const res = await fetchWithTimeout(url, { headers: { 'Cache-Control': 'no-cache' } }, 12000);
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const json = await res.json();
+      if (!json || !json.success || !Array.isArray(json.data)) {
+        throw new Error('Invalid response');
+      }
+
+      const rows: StokItem[] = json.data.map((r: any) => ({
+        id_stok: r.id_stok,
+        nama_stok: r.nama_stok ?? '',
+        satuan_stok: r.satuan_stok ?? 'pcs',
+        supplier_stok: r.supplier_stok ?? 'Tidak ada supplier',
+        tanggal_stok: r.tanggal_stok ?? new Date().toISOString().split('T')[0],
+        jumlah_stok: Number(r.jumlah_stok ?? 0),
+        Harga_stok: Number(r.Harga_stok ?? 0),
+      }));
+
+      setStok(rows);
+      showNotification('success', 'Data laporan dimuat');
+    } catch (err) {
+      showNotification('error', 'Gagal memuat data laporan');
+      setStok([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [search, dateFrom, dateTo, showNotification]);
+
+  // Load user role
+  useEffect(() => {
+    const user = getCurrentUser();
+    setCurrentUser(user);
+  }, []);
+
+  useEffect(() => {
+    fetchLaporanData();
+  }, [fetchLaporanData]);
+
+  useEffect(() => {
+    let result = [...stok];
     
-    const csvData = filteredData.map(item => [
-      formatDate(item.tanggal),
-      item.nama_barang,
-      item.harga_satuan,
-      item.supplier,
-      item.sisa_stok,
-      item.satuan
+    if (search && search.trim() !== '') {
+      const q = search.trim().toLowerCase();
+      result = result.filter(it =>
+        String(it.nama_stok ?? '').toLowerCase().includes(q) ||
+        String(it.supplier_stok ?? '').toLowerCase().includes(q) ||
+        String(it.satuan_stok ?? '').toLowerCase().includes(q)
+      );
+    }
+    
+    if (supplierFilter && supplierFilter !== 'Semua') {
+      result = result.filter(it => it.supplier_stok === supplierFilter);
+    }
+
+    if (dateFrom) {
+      result = result.filter(it => it.tanggal_stok >= dateFrom);
+    }
+
+    if (dateTo) {
+      result = result.filter(it => it.tanggal_stok <= dateTo);
+    }
+    
+    setFiltered(result);
+  }, [stok, search, supplierFilter, dateFrom, dateTo]);
+
+  const suppliers = ['Semua', ...Array.from(new Set(stok.map(s => s.supplier_stok).filter(Boolean)))];
+
+  const totalStok = filtered.reduce((sum, item) => sum + item.jumlah_stok, 0);
+  const totalNilai = filtered.reduce((sum, item) => sum + (item.jumlah_stok * item.Harga_stok), 0);
+
+  const handleExportCSV = () => {
+    if (!canExport) {
+      showNotification('error', '❌ Anda tidak memiliki izin untuk export');
+      return;
+    }
+
+    const headers = ['ID', 'Nama Stok', 'Supplier', 'Jumlah', 'Satuan', 'Harga', 'Total Nilai', 'Tanggal'];
+    const rows = filtered.map(item => [
+      item.id_stok ?? '-',
+      item.nama_stok,
+      item.supplier_stok,
+      item.jumlah_stok,
+      item.satuan_stok,
+      item.Harga_stok,
+      item.jumlah_stok * item.Harga_stok,
+      item.tanggal_stok
     ]);
 
     const csvContent = [
       headers.join(','),
-      ...csvData.map(row => row.join(','))
+      ...rows.map(row => row.join(','))
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    
-    link.setAttribute('href', url);
-    link.setAttribute('download', `laporan-stok-sanguku-${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    
-    document.body.appendChild(link);
+    link.href = URL.createObjectURL(blob);
+    link.download = `laporan-stok-${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
-    document.body.removeChild(link);
+
+    showNotification('success', '✓ Laporan berhasil diexport');
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Tambahkan Header di sini */}
       <Header />
       
-      <div className="p-6">
-        {/* Header dengan Tombol Download */}
-        <div className="flex justify-between items-center mb-8">
-          <div className="text-left">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Laporan Stok</h1>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={downloadCSV}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Download CSV</span>
-            </button>
-            <button
-              onClick={downloadPDF}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Download PDF</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Filter Section */}
-        <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Dari Tanggal
-              </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+      <div className="p-4 md:p-6">
+        <div className="max-w-[1400px] mx-auto">
+          
+          {/* Notifications */}
+          {notifications.map(notif => (
+            <div key={notif.id} className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 animate-scale-in">
+                <div className="p-8 text-center">
+                  <div className="flex items-center justify-center mb-4">
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center ${
+                      notif.type === 'success' ? 'bg-green-100' :
+                      notif.type === 'error' ? 'bg-red-100' :
+                      notif.type === 'warning' ? 'bg-yellow-100' :
+                      'bg-blue-100'
+                    }`}>
+                      <span className={`text-5xl ${
+                        notif.type === 'success' ? 'text-green-500' :
+                        notif.type === 'error' ? 'text-red-500' :
+                        notif.type === 'warning' ? 'text-yellow-500' :
+                        'text-blue-500'
+                      }`}>
+                        {notif.type === 'success' ? '✓' : notif.type === 'error' ? '✗' : notif.type === 'warning' ? '⚠' : 'ℹ'}
+                      </span>
+                    </div>
+                  </div>
+                  <h3 className="text-2xl font-bold text-gray-800 mb-3">
+                    {notif.type === 'success' ? 'Berhasil!' : 
+                     notif.type === 'error' ? 'Gagal!' : 
+                     notif.type === 'warning' ? 'Peringatan!' : 
+                     'Informasi'}
+                  </h3>
+                  <p className="text-gray-600 mb-8 text-lg">{notif.text}</p>
+                  <button
+                    onClick={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))}
+                    className={`px-10 py-3 rounded-lg font-semibold text-white transition-colors ${
+                      notif.type === 'success' ? 'bg-green-500 hover:bg-green-600' :
+                      notif.type === 'error' ? 'bg-red-500 hover:bg-red-600' :
+                      notif.type === 'warning' ? 'bg-yellow-500 hover:bg-yellow-600' :
+                      'bg-blue-500 hover:bg-blue-600'
+                    }`}
+                  >
+                    OK
+                  </button>
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Sampai Tanggal
-              </label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-        </div>
+          ))}
 
-        {/* Tabel Laporan */}
-        <div ref={tableRef} className="bg-white rounded-lg shadow border overflow-hidden mb-6">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-blue-800">
-                <tr>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Tanggal
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Nama Produk
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Harga
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider border-r border-gray-600">
-                    Supplier
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white uppercase tracking-wider">
-                    Sisa Stok
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {currentData.length > 0 ? (
-                  currentData.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-r">
-                        {formatDate(item.tanggal)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 border-r">
-                        {item.nama_barang}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-r">
-                        {formatCurrency(item.harga_satuan)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 border-r">
-                        {item.supplier}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
-                        {item.sisa_stok} {item.satuan}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">
-                      <div className="flex flex-col items-center">
-                        <svg className="w-12 h-12 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2M4 13h2m8-8V4a1 1 0 00-1-1h-2a1 1 0 00-1 1v1M9 7h6" />
-                        </svg>
-                        Tidak ada data laporan stok
-                      </div>
-                    </td>
-                  </tr>
+          {/* Header Content (yang sebelumnya di header utama) */}
+          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-800 mb-2">Laporan Stok</h1>
+                <div className="flex items-center gap-3 text-sm flex-wrap">
+                  <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700 font-medium">
+                    👤 {currentUser.role.toUpperCase()}
+                  </span>
+                </div>
+
+                {/* Read-Only Info Banner */}
+                <div className="mt-3 flex items-center gap-2 text-blue-600 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                    <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+                  </svg>
+                  <span className="text-sm font-medium">
+                    Laporan ini hanya untuk melihat data.
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => fetchLaporanData()}
+                  className="px-4 py-2 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700"
+                >
+                  🔄 Refresh
+                </button>
+
+                {canExport && (
+                  <>
+                    <button
+                      onClick={handleExportCSV}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md"
+                    >
+                      📥 Export CSV
+                    </button>
+                  </>
                 )}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* Pagination */}
-        <div className="flex justify-between items-center mb-6">
-          <div className="text-sm text-gray-600">
-            Menampilkan {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredData.length)} dari {filteredData.length} item stok
-            {(startDate || endDate) && (
-              <span className="ml-2">
-                (difilter berdasarkan tanggal)
-              </span>
+          {/* Filters */}
+          <div className="bg-white rounded-xl shadow-md p-5 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Cari</label>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="🔍 Cari nama stok atau supplier..."
+                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 focus:border-blue-500 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Supplier</label>
+                <select
+                  value={supplierFilter}
+                  onChange={(e) => setSupplierFilter(e.target.value)}
+                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 focus:border-blue-500 focus:outline-none transition-colors"
+                >
+                  {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Dari Tanggal</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 focus:border-blue-500 focus:outline-none transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Sampai Tanggal</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 focus:border-blue-500 focus:outline-none transition-colors"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-blue-100 text-sm font-medium mb-1">Total Items</p>
+                  <p className="text-3xl font-bold">{filtered.length}</p>
+                </div>
+                <div className="text-5xl opacity-50">📦</div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-green-100 text-sm font-medium mb-1">Total Stok</p>
+                  <p className="text-3xl font-bold">{totalStok.toLocaleString()}</p>
+                </div>
+                <div className="text-5xl opacity-50">📊</div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-purple-100 text-sm font-medium mb-1">Total Nilai</p>
+                  <p className="text-2xl font-bold">Rp {totalNilai.toLocaleString('id-ID')}</p>
+                </div>
+                <div className="text-5xl opacity-50">💰</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-xl shadow-md overflow-hidden print:shadow-none">
+            {isLoading ? (
+              <div className="p-12 text-center">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+                <p className="mt-4 text-gray-600 font-medium">Memuat laporan...</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gradient-to-r from-gray-100 to-gray-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-bold text-gray-700 border-b-2">ID</th>
+                      <th className="px-4 py-3 text-left font-bold text-gray-700 border-b-2">Nama Stok</th>
+                      <th className="px-4 py-3 text-left font-bold text-gray-700 border-b-2">Supplier</th>
+                      <th className="px-4 py-3 text-right font-bold text-gray-700 border-b-2">Jumlah</th>
+                      <th className="px-4 py-3 text-center font-bold text-gray-700 border-b-2">Satuan</th>
+                      <th className="px-4 py-3 text-right font-bold text-gray-700 border-b-2">Harga</th>
+                      <th className="px-4 py-3 text-right font-bold text-gray-700 border-b-2">Total Nilai</th>
+                      <th className="px-4 py-3 text-center font-bold text-gray-700 border-b-2">Tanggal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="p-12 text-center text-gray-500">
+                          <div className="text-6xl mb-4">📋</div>
+                          <p className="text-lg font-medium">Tidak ada data laporan</p>
+                          <p className="text-sm mt-2">Sesuaikan filter untuk melihat data</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filtered.map((row, idx) => (
+                        <tr
+                          key={row.id_stok ?? idx}
+                          className="border-b hover:bg-gray-50 transition-colors"
+                        >
+                          <td className="px-4 py-3 text-gray-700 font-medium">{row.id_stok ?? '-'}</td>
+                          <td className="px-4 py-3 text-gray-800 font-medium">{row.nama_stok}</td>
+                          <td className="px-4 py-3 text-gray-600">{row.supplier_stok}</td>
+                          <td className="px-4 py-3 text-right text-gray-800 font-semibold">
+                            {row.jumlah_stok?.toLocaleString?.() ?? row.jumlah_stok}
+                          </td>
+                          <td className="px-4 py-3 text-center text-gray-600">
+                            <span className="px-2 py-1 bg-gray-100 rounded-md text-xs font-medium">
+                              {row.satuan_stok}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right text-gray-800 font-semibold">
+                            Rp {row.Harga_stok?.toLocaleString?.('id-ID') ?? row.Harga_stok}
+                          </td>
+                          <td className="px-4 py-3 text-right text-gray-800 font-bold">
+                            Rp {(row.jumlah_stok * row.Harga_stok).toLocaleString('id-ID')}
+                          </td>
+                          <td className="px-4 py-3 text-center text-gray-600">{row.tanggal_stok}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  <tfoot className="bg-gray-100 font-bold">
+                    <tr>
+                      <td colSpan={3} className="px-4 py-3 text-right text-gray-800">TOTAL:</td>
+                      <td className="px-4 py-3 text-right text-blue-600">{totalStok.toLocaleString()}</td>
+                      <td className="px-4 py-3"></td>
+                      <td className="px-4 py-3"></td>
+                      <td className="px-4 py-3 text-right text-purple-600">
+                        Rp {totalNilai.toLocaleString('id-ID')}
+                      </td>
+                      <td className="px-4 py-3"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             )}
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-              className={`px-4 py-2 border border-gray-300 rounded-lg transition-colors ${
-                currentPage === 1 
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              Previous
-            </button>
-            <button
-              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-              disabled={currentPage === totalPages}
-              className={`px-4 py-2 border border-gray-300 rounded-lg transition-colors ${
-                currentPage === totalPages 
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              Next
-            </button>
-          </div>
-        </div>
 
-        {/* Total Sisa Stok */}
-        <div className="bg-white rounded-lg shadow border p-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Total Sisa Stok</h3>
-              <p className="text-gray-600 text-sm">Total keseluruhan stok yang tersisa</p>
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-blue-600">
-                {totalSisaStok} Items
+          {/* Footer */}
+          <div className="mt-6 bg-white rounded-xl shadow-md p-4 print:hidden">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
+              <div className="text-gray-700 font-medium">
+                📊 Menampilkan <span className="font-bold text-blue-600">{filtered.length}</span> dari {stok.length} total items
               </div>
-              <div className="text-sm text-gray-500">
-                dari {filteredData.length} produk
+              <div className="text-gray-500 text-xs">
+                Laporan dibuat: {new Date().toLocaleString('id-ID')}
               </div>
             </div>
           </div>
+
+          <style jsx>{`
+            @keyframes scale-in {
+              from {
+                transform: scale(0.9);
+                opacity: 0;
+              }
+              to {
+                transform: scale(1);
+                opacity: 1;
+              }
+            }
+
+            @keyframes fade-in {
+              from {
+                opacity: 0;
+              }
+              to {
+                opacity: 1;
+              }
+            }
+
+            .animate-scale-in {
+              animation: scale-in 0.3s ease-out;
+            }
+
+            .animate-fade-in {
+              animation: fade-in 0.2s ease-out;
+            }
+
+            @media print {
+              body {
+                background: white;
+              }
+              .print\\:hidden {
+                display: none !important;
+              }
+              .print\\:shadow-none {
+                box-shadow: none !important;
+              }
+            }
+          `}</style>
         </div>
       </div>
     </div>

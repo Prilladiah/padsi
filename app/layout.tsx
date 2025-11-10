@@ -2,6 +2,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import Sidebar from '@/components/layout/Sidebar';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -18,10 +19,12 @@ export default function RootLayout({
   return (
     <html lang="id">
       <body className={inter.className}>
-        {/* Hapus Sidebar dari sini, header akan ada di masing-masing page */}
-        <main className="min-h-screen">
-          {children}
-        </main>
+        <div className="flex min-h-screen">
+          <Sidebar/>
+          <main className="flex-1 bg-gray-50">
+            {children}
+          </main>
+        </div>
       </body>
     </html>
   );

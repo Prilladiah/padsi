@@ -1,82 +1,143 @@
 // components/layout/Sidebar.tsx
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { User } from '@/types';
+import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 
-interface SidebarProps {
-  user: User;
-  onLogout: () => void;
+type UserRole = 'manager' | 'staff';
+
+type User = {
+  role: UserRole;
+  name?: string;
+  username?: string;
+};
+
+// Helper: Get current user from localStorage based on username
+function getCurrentUser(): User | null {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    // Coba ambil dari current_user (jika sudah ada sistem login)
+    const userStr = localStorage.getItem('current_user');
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      return user;
+    }
+
+    // Fallback: cek username dari localStorage
+    const username = localStorage.getItem('username');
+    if (!username) return null;
+
+    // Mapping username ke role (hapus admin)
+    const usernameLower = username.toLowerCase();
+    
+    if (usernameLower === 'manager' || usernameLower.includes('manager')) {
+      return { role: 'manager', name: username, username };
+    } else {
+      return { role: 'staff', name: username, username };
+    }
+  } catch {
+    return null;
+  }
 }
 
-export default function Sidebar({ user, onLogout }: SidebarProps) {
+export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  const menuItems = [
-    {
-      name: 'Stok',
-      href: '/stok',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2M4 13h2m8-8V4a1 1 0 00-1-1h-2a1 1 0 00-1 1v1M9 7h6" />
-        </svg>
-      ),
-      roles: ['manager'] // Hanya manager
-    },
-    {
-      name: 'Laporan',
-      href: '/laporan',
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      ),
-      roles: ['manager', 'staff'] // Manager dan staff
+  useEffect(() => {
+    const userData = getCurrentUser();
+    setUser(userData);
+    setIsLoggedIn(!!userData);
+  }, []);
+
+  // Jangan tampilkan sidebar di halaman login
+  if (pathname === '/') {
+    return null;
+  }
+
+  // Jika tidak ada user yang login, jangan tampilkan sidebar
+  if (!isLoggedIn) {
+    return null;
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('current_user');
+    localStorage.removeItem('username');
+    router.push('/');
+  };
+
+  // Navigation berdasarkan role
+  const getNavigation = () => {
+    if (user?.role === 'staff') {
+      // Staff hanya bisa akses Laporan
+      return [
+        {
+          name: 'Laporan',
+          href: '/laporan',
+          icon: '📊',
+          accessible: true,
+        }
+      ];
+    } else {
+      // Manager bisa akses semua
+      return [
+        {
+          name: 'Stok',
+          href: '/stok',
+          icon: '📦',
+          accessible: true,
+        },
+        {
+          name: 'Laporan',
+          href: '/laporan',
+          icon: '📊',
+          accessible: true,
+        }
+      ];
     }
-  ];
+  };
 
-  const filteredMenuItems = menuItems.filter(item => 
-    item.roles.includes(user.role)
-  );
+  const navigation = getNavigation();
 
   return (
-    <div className="w-48 bg-blue-900 shadow-lg flex flex-col h-screen">
-      {/* Header - Kosongkan kontennya */}
-      <div className="p-4 border-b border-blue-800">
-        {/* Hapus semua tulisan di header */}
-      </div>
-      
-      {/* Navigation Menu */}
-      <nav className="flex-1 mt-4">
-        {filteredMenuItems.map((item) => (
-          <Link
-            key={item.name}
-            href={item.href}
-            className={`flex items-center px-4 py-2 text-sm transition-colors ${
-              pathname.startsWith(item.href) 
-                ? 'bg-blue-800 text-white border-r-2 border-blue-300' 
-                : 'text-blue-200 hover:bg-blue-800 hover:text-white'
-            }`}
-          >
-            <span className="mr-3">{item.icon}</span>
-            {item.name}
-          </Link>
-        ))}
+    <div className="w-[250px] bg-[#1e3a8a] min-h-screen flex flex-col">
+      {/* Navigation - langsung mulai dari sini tanpa profile di atas */}
+      <nav className="flex-1 py-2 mt-4">
+        {navigation.map((item) => {
+          if (!item.accessible) return null;
+          
+          const isActive = pathname.startsWith(item.href);
+          
+          return (
+            <a
+              key={item.name}
+              href={item.href}
+              className={`flex items-center gap-3 px-6 py-3 transition-colors ${
+                isActive
+                  ? 'bg-white/10 border-l-4 border-white text-white'
+                  : 'text-white/80 hover:bg-white/5 border-l-4 border-transparent'
+              }`}
+            >
+              <span className="text-xl">{item.icon}</span>
+              <span className="font-medium">{item.name}</span>
+            </a>
+          );
+        })}
       </nav>
 
-      {/* Footer dengan Logout */}
-      <div className="p-4 border-t border-blue-800">
-        <button 
-          onClick={onLogout}
-          className="flex items-center w-full text-blue-200 hover:text-white hover:bg-blue-800 px-2 py-2 rounded transition-colors text-xs"
+      {/* Logout Button at Bottom */}
+      <div className="p-4 border-t border-white/10">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-4 py-3 text-white/80 hover:text-white hover:bg-white/10 rounded-lg transition-colors text-sm"
         >
-          <span className="mr-2">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </span>
-          Logout
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+          </svg>
+          <span className="font-medium">Logout</span>
         </button>
       </div>
     </div>

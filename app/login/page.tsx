@@ -23,14 +23,14 @@ export default function LoginPage() {
           role: 'manager',
           nama: 'Arel Lafito Dinoris'
         }))
-        router.push('/dashboard')
+        router.push('/stok')
       } else if (username === 'staff' && password === 'staff123') {
         localStorage.setItem('user', JSON.stringify({
           username,
           role: 'staff',
           nama: 'Prilla Diah Mawarni'
         }))
-        router.push('/dashboard')
+        router.push('/laporan/stok')
       } else {
         setError('Username atau password salah!')
       }

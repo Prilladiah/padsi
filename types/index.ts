@@ -8,26 +8,19 @@ export interface StokItem {
   tanggal_masuk: string;
 }
 
+// types/index.ts
 export interface LaporanItem {
   id: string;
-  stok_id: string;
+  tanggal: string;
   nama_barang: string;
+  harga_satuan: number;
   supplier: string;
-  jumlah_masuk: number;
-  jumlah_keluar: number;
   sisa_stok: number;
   satuan: string;
-  harga_satuan: number;
-  total_nilai: number;
-  tanggal: string;
-  jenis_transaksi: 'masuk' | 'keluar';
-  keterangan?: string;
 }
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
+export type User = {
   role: 'manager' | 'staff';
-}
-
+  name?: string;
+  username?: string;
+};
