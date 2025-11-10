@@ -58,7 +58,7 @@ export default function LaporanPengeluaranPage() {
               periode_laporan: item.tanggal_stok || new Date().toISOString().split('T')[0],
               unit_bisnis: 'Toko Utama',
               total_pengeluaran: (item.jumlah_stok || 0) * (item.Harga_stok || 0),
-              total_pendapatan: 0,
+              total_pendapatan: 0, // Selalu 0 untuk pengeluaran
               id_stok: item.id_stok,
               kategori: item.supplier_stok || 'Umum',
               nama_stok: item.nama_stok || 'Tidak ada nama',
@@ -120,6 +120,7 @@ export default function LaporanPengeluaranPage() {
   }
 
   const totalPengeluaran = data.reduce((sum, item) => sum + (item.total_pengeluaran || 0), 0);
+  const totalPendapatan = data.reduce((sum, item) => sum + (item.total_pendapatan || 0), 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -142,27 +143,40 @@ export default function LaporanPengeluaranPage() {
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            {/* Summary Card */}
-            <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 text-white">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-red-100 text-sm">Total Pengeluaran</p>
-                  <p className="text-3xl font-bold">Rp {totalPengeluaran.toLocaleString('id-ID')}</p>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-6 bg-gray-50">
+              <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 text-white rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-red-100 text-sm">Total Pengeluaran</p>
+                    <p className="text-2xl font-bold">Rp {totalPengeluaran.toLocaleString('id-ID')}</p>
+                  </div>
+                  <div className="text-4xl opacity-80">💸</div>
                 </div>
-                <div className="text-5xl opacity-80">💸</div>
+              </div>
+              
+              <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 text-white rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-green-100 text-sm">Total Pendapatan</p>
+                    <p className="text-2xl font-bold">Rp {totalPendapatan.toLocaleString('id-ID')}</p>
+                  </div>
+                  <div className="text-4xl opacity-80">💰</div>
+                </div>
               </div>
             </div>
-
             {/* Table */}
             <div className="overflow-x-auto">
               <table className="min-w-full">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">ID</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Jenis Laporan</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Periode</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Unit Bisnis</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Kategori</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700">Total Pengeluaran</th>
+                    <th className="px-4 py-3 text-right font-semibold text-gray-700">Total Pendapatan</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Keterangan</th>
                   </tr>
                 </thead>
@@ -170,6 +184,11 @@ export default function LaporanPengeluaranPage() {
                   {data.map((item) => (
                     <tr key={item.id_laporan} className="border-b hover:bg-gray-50">
                       <td className="px-4 py-3 text-gray-700">{item.id_laporan}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          {item.jenis_laporan || 'Pengeluaran'}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-gray-600">
                         {new Date(item.periode_laporan).toLocaleDateString('id-ID')}
                       </td>
@@ -178,15 +197,21 @@ export default function LaporanPengeluaranPage() {
                       <td className="px-4 py-3 text-right font-semibold text-red-600">
                         Rp {item.total_pengeluaran?.toLocaleString('id-ID')}
                       </td>
+                      <td className="px-4 py-3 text-right font-semibold text-green-600">
+                        Rp {item.total_pendapatan?.toLocaleString('id-ID')}
+                      </td>
                       <td className="px-4 py-3 text-gray-600">{item.nama_stok}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="bg-gray-100 font-bold">
                   <tr>
-                    <td colSpan={4} className="px-4 py-3 text-right text-gray-800">TOTAL PENGELUARAN:</td>
+                    <td colSpan={5} className="px-4 py-3 text-right text-gray-800">TOTAL:</td>
                     <td className="px-4 py-3 text-right text-red-600">
                       Rp {totalPengeluaran.toLocaleString('id-ID')}
+                    </td>
+                    <td className="px-4 py-3 text-right text-green-600">
+                      Rp {totalPendapatan.toLocaleString('id-ID')}
                     </td>
                     <td className="px-4 py-3"></td>
                   </tr>
