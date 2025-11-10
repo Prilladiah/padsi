@@ -3,16 +3,16 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
 export async function GET(request: Request) {
+  const startTime = Date.now();
+  
   try {
     console.log('🚀 Starting Laporan API...');
     
     const { searchParams } = new URL(request.url);
     const jenis = searchParams.get('jenis');
-    const limit = Number(searchParams.get('limit')) || 50;
+    const limit = Math.min(Number(searchParams.get('limit')) || 50, 100);
 
-    const finalLimit = Math.min(Math.max(limit, 1), 100);
-
-    // GUNAKAN TABEL laporan YANG SUDAH TERBUKTI ADA
+    // Query yang lebih cepat
     let sqlQuery = `
       SELECT 
         id_laporan,
@@ -33,36 +33,42 @@ export async function GET(request: Request) {
       params.push(jenis);
     }
 
-    sqlQuery += ` ORDER BY periode_laporan DESC, id_laporan DESC`;
-    sqlQuery += ` LIMIT $${params.length + 1}`;
-    params.push(finalLimit);
+    sqlQuery += ` ORDER BY periode_laporan DESC LIMIT $${params.length + 1}`;
+    params.push(limit);
 
-    console.log('📊 Executing Query:', sqlQuery);
-    console.log('🔧 Query Params:', params);
-
+    console.log('📊 Executing query...');
     const result = await query(sqlQuery, params);
-    console.log(`✅ Found ${result.rows.length} records from laporan table`);
+    
+    const queryTime = Date.now() - startTime;
+    console.log(`✅ Query completed in ${queryTime}ms, found ${result.rows.length} records`);
 
-    // Transform data
+    // Fast transform
     const transformedData = result.rows.map((row: any) => ({
-      id_laporan: row.id_laporan,
+      id_laporan: +row.id_laporan,
       jenis_laporan: row.jenis_laporan,
       periode_laporan: row.periode_laporan,
       unit_bisnis: row.unit_bisnis,
-      total_pengeluaran: parseFloat(row.total_pengeluaran) || 0,
-      total_pendapatan: parseFloat(row.total_pendapatan) || 0,
-      id_stok: row.id_stok
+      total_pengeluaran: +(row.total_pengeluaran || 0),
+      total_pendapatan: +(row.total_pendapatan || 0),
+      id_stok: +row.id_stok
     }));
 
+    const totalTime = Date.now() - startTime;
+    
     return NextResponse.json({
       success: true,
       data: transformedData,
       total: transformedData.length,
-      source: 'laporan_table'
+      performance: {
+        queryTime: `${queryTime}ms`,
+        totalTime: `${totalTime}ms`
+      }
     });
 
   } catch (error: any) {
-    console.error('❌ Laporan API Error:', error);
+    const totalTime = Date.now() - startTime;
+    console.error(`❌ API failed after ${totalTime}ms:`, error.message);
+    
     return NextResponse.json(
       { 
         success: false, 

@@ -26,59 +26,38 @@ export default function LaporanPengeluaranPage() {
         
         console.log('🔄 Fetching data from laporan API...');
         
-        // Coba ambil dari API laporan utama
-        const response = await fetch('/api/laporan?jenis=Pengeluaran&limit=100');
+        // Single API call dengan timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+        
+        const response = await fetch('/api/laporan?jenis=Pengeluaran&limit=100', {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
-          const errorText = await response.text();
-          console.error('❌ API Error:', errorText);
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
+          throw new Error(`HTTP ${response.status}`);
         }
         
         const result = await response.json();
         console.log('📦 API Response:', result);
         
-        if (result.success) {
-          if (result.data.length > 0) {
-            setData(result.data);
-            console.log(`✅ Loaded ${result.data.length} records from laporan table`);
-          } else {
-            // Jika tidak ada data, coba dari fallback
-            console.log('📭 No data in laporan table, trying fallback...');
-            await fetchFallbackData();
-          }
+        if (result.success && Array.isArray(result.data)) {
+          setData(result.data);
+          console.log(`✅ Loaded ${result.data.length} records`);
         } else {
-          throw new Error(result.error || 'Unknown API error');
+          throw new Error('Invalid response format');
         }
         
       } catch (err: any) {
-        console.error('❌ Main fetch error:', err);
-        // Coba fallback
-        await fetchFallbackData();
-      }
-    }
-
-    async function fetchFallbackData() {
-      try {
-        console.log('🔄 Trying fallback API...');
-        const fallbackResponse = await fetch('/api/laporan/pengeluaran?limit=100');
+        console.error('❌ Fetch error:', err);
         
-        if (!fallbackResponse.ok) {
-          const errorText = await fallbackResponse.text();
-          throw new Error(`HTTP ${fallbackResponse.status}: ${errorText}`);
-        }
-        
-        const fallbackResult = await fallbackResponse.json();
-        
-        if (fallbackResult.success) {
-          setData(fallbackResult.data);
-          console.log(`✅ Loaded ${fallbackResult.data.length} records from stok fallback`);
+        if (err.name === 'AbortError') {
+          setError('Request timeout - server membutuhkan waktu terlalu lama');
         } else {
-          setError(fallbackResult.error || 'Tidak ada data pengeluaran yang ditemukan');
+          setError('Gagal memuat data: ' + (err.message || 'Unknown error'));
         }
-      } catch (fallbackErr: any) {
-        console.error('❌ Fallback also failed:', fallbackErr);
-        setError('Terjadi kesalahan saat mengambil data: ' + fallbackErr.message);
       } finally {
         setLoading(false);
       }
@@ -87,7 +66,6 @@ export default function LaporanPengeluaranPage() {
     fetchData();
   }, []);
 
-  // ... rest of your component (loading, error, and table rendering) remains the same
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -96,7 +74,7 @@ export default function LaporanPengeluaranPage() {
           <h1 className="text-2xl font-bold mb-4">Laporan Pengeluaran</h1>
           <div className="flex items-center justify-center p-8">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-            <span className="ml-3 text-gray-600">Memuat data dari database...</span>
+            <span className="ml-3 text-gray-600">Memuat data...</span>
           </div>
         </div>
       </div>
@@ -150,7 +128,7 @@ export default function LaporanPengeluaranPage() {
         ) : (
           <div className="bg-white rounded-lg shadow-md overflow-hidden">
             {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-6 bg-gray-50">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6 bg-gray-50">
               <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 text-white rounded-lg">
                 <div className="flex justify-between items-center">
                   <div>
