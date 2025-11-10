@@ -208,7 +208,7 @@ export default function StokPage() {
     
     // Notifikasi muncul setelah form tertutup
     setTimeout(() => {
-      showNotification('warning', '⚠ Mode Offline: Data disimpan lokal');
+      showNotification('warning', 'Mode Offline: Data disimpan lokal');
     }, 100);
   }, [showNotification, resetForm]);
 
@@ -543,7 +543,7 @@ export default function StokPage() {
         }
         const json = await res.json();
         if (json.success) {
-          showNotification('success', '✓ Data berhasil dihapus');
+          showNotification('success', 'Data berhasil dihapus');
           await fetchStokData({ silent: true });
         } else {
           showNotification('error', `✗ ${json.error || 'Gagal menghapus'}`);
