@@ -11,10 +11,6 @@ interface LaporanData {
   total_pengeluaran: number;
   total_pendapatan: number;
   id_stok: number;
-  kategori: string;
-  nama_stok: string;
-  jumlah_stok: number;
-  harga_satuan: number;
 }
 
 export default function LaporanPengeluaranPage() {
@@ -28,7 +24,6 @@ export default function LaporanPengeluaranPage() {
         setLoading(true);
         setError('');
         
-        // Coba ambil dari API laporan utama dulu
         const response = await fetch('/api/laporan?jenis=Pengeluaran&limit=100');
         
         if (!response.ok) {
@@ -40,7 +35,6 @@ export default function LaporanPengeluaranPage() {
         if (result.success && result.data.length > 0) {
           setData(result.data);
         } else {
-          // Jika tidak ada data, coba ambil dari stok
           console.log('Tidak ada data di laporan utama, mencoba dari stok...');
           const stokResponse = await fetch('/api/stok?limit=100');
           
@@ -51,19 +45,16 @@ export default function LaporanPengeluaranPage() {
           const stokResult = await stokResponse.json();
           
           if (stokResult.success) {
-            // Transform data stok menjadi format laporan pengeluaran
+            // Transform data stok menjadi format laporan pengeluaran - HAPUS kategori dan nama_stok
             const transformedData: LaporanData[] = stokResult.data.map((item: any, index: number) => ({
               id_laporan: index + 1,
               jenis_laporan: 'Pengeluaran',
               periode_laporan: item.tanggal_stok || new Date().toISOString().split('T')[0],
               unit_bisnis: 'Toko Utama',
               total_pengeluaran: (item.jumlah_stok || 0) * (item.Harga_stok || 0),
-              total_pendapatan: 0, // Selalu 0 untuk pengeluaran
-              id_stok: item.id_stok,
-              kategori: item.supplier_stok || 'Umum',
-              nama_stok: item.nama_stok || 'Tidak ada nama',
-              jumlah_stok: item.jumlah_stok || 0,
-              harga_satuan: item.Harga_stok || 0
+              total_pendapatan: 0,
+              id_stok: item.id_stok
+              // HAPUS: kategori, nama_stok, jumlah_stok, harga_satuan
             }));
             
             setData(transformedData);
@@ -165,7 +156,8 @@ export default function LaporanPengeluaranPage() {
                 </div>
               </div>
             </div>
-            {/* Table */}
+
+            {/* Table - HAPUS kolom Kategori dan Keterangan */}
             <div className="overflow-x-auto">
               <table className="min-w-full">
                 <thead className="bg-gray-100">
@@ -174,10 +166,8 @@ export default function LaporanPengeluaranPage() {
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Jenis Laporan</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Periode</th>
                     <th className="px-4 py-3 text-left font-semibold text-gray-700">Unit Bisnis</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Kategori</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700">Total Pengeluaran</th>
                     <th className="px-4 py-3 text-right font-semibold text-gray-700">Total Pendapatan</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Keterangan</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -193,27 +183,24 @@ export default function LaporanPengeluaranPage() {
                         {new Date(item.periode_laporan).toLocaleDateString('id-ID')}
                       </td>
                       <td className="px-4 py-3 text-gray-600">{item.unit_bisnis}</td>
-                      <td className="px-4 py-3 text-gray-600">{item.kategori}</td>
                       <td className="px-4 py-3 text-right font-semibold text-red-600">
                         Rp {item.total_pengeluaran?.toLocaleString('id-ID')}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-green-600">
                         Rp {item.total_pendapatan?.toLocaleString('id-ID')}
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{item.nama_stok}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="bg-gray-100 font-bold">
                   <tr>
-                    <td colSpan={5} className="px-4 py-3 text-right text-gray-800">TOTAL:</td>
+                    <td colSpan={4} className="px-4 py-3 text-right text-gray-800">TOTAL:</td>
                     <td className="px-4 py-3 text-right text-red-600">
                       Rp {totalPengeluaran.toLocaleString('id-ID')}
                     </td>
                     <td className="px-4 py-3 text-right text-green-600">
                       Rp {totalPendapatan.toLocaleString('id-ID')}
                     </td>
-                    <td className="px-4 py-3"></td>
                   </tr>
                 </tfoot>
               </table>

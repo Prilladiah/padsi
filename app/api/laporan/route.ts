@@ -1,4 +1,3 @@
-// app/api/laporan/route.ts
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
@@ -18,7 +17,6 @@ export async function GET(request: Request) {
 
     const finalLimit = Math.min(Math.max(limit, 1), 100);
 
-    // Coba beberapa variasi query untuk test
     let sqlQuery = `
       SELECT 
         Id_laporan as id_laporan,
@@ -67,11 +65,10 @@ export async function GET(request: Request) {
     console.log('Final SQL Query:', sqlQuery);
     console.log('Query Params:', params);
 
-    // Eksekusi query
     const result = await query(sqlQuery, params);
     console.log('Query result rows:', result.rows.length);
 
-    // Transform data
+    // Transform data - HAPUS kategori dan nama_stok
     const fixedRows = result.rows.map((row: any) => ({
       id_laporan: row.id_laporan,
       jenis_laporan: row.jenis_laporan,
@@ -79,12 +76,8 @@ export async function GET(request: Request) {
       unit_bisnis: row.unit_bisnis,
       total_pengeluaran: parseFloat(row.total_pengeluaran) || 0,
       total_pendapatan: parseFloat(row.total_pendapatan) || 0,
-      id_stok: row.id_stok,
-      kategori: getKategoriFromJenisLaporan(row.jenis_laporan),
-      nama_stok: `Item ${row.id_stok}`,
-      jumlah_stok: 0,
-      harga_satuan: 0,
-      periodic_laporan_date: row.periode_laporan
+      id_stok: row.id_stok
+      // HAPUS: kategori, nama_stok, jumlah_stok, harga_satuan, periodic_laporan_date
     }));
 
     console.log('=== LAPORAN API SUCCESS ===');
@@ -109,14 +102,4 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-}
-
-function getKategoriFromJenisLaporan(jenisLaporan: string): string {
-  const kategoriMap: { [key: string]: string } = {
-    'Pendapatan': 'Pendapatan',
-    'Penjualan': 'Penjualan', 
-    'Pengeluaran': 'Pengeluaran'
-  };
-  
-  return kategoriMap[jenisLaporan] || 'Umum';
 }
