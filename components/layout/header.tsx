@@ -1,4 +1,3 @@
-// components/layout/Header.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -51,13 +50,12 @@ function getPageTitle(pathname: string): string {
     '/pengeluaran': 'Pengeluaran',
   };
   
-  return routes[pathname];
+  return routes[pathname] || '';
 }
 
 // Helper: Check if current page should show back button
 function shouldShowBackButton(pathname: string): boolean {
-  // Tampilkan tombol back untuk laporan/pengeluaran dan laporan/stok
-  return pathname === '/laporan/pendapatan' || pathname === '/laporan/pengeluaran'|| pathname === '/laporan/stok';
+  return pathname === '/laporan/pendapatan' || pathname === '/laporan/pengeluaran' || pathname === '/laporan/stok';
 }
 
 export default function Header() {
@@ -78,9 +76,7 @@ export default function Header() {
   };
 
   const handleBack = () => {
-    if (pathname === '/laporan/pengeluaran') {
-      router.push('/laporan');
-    } else if (pathname === '/laporan/stok') {
+    if (pathname === '/laporan/pengeluaran' || pathname === '/laporan/pendapatan' || pathname === '/laporan/stok') {
       router.push('/laporan');
     } else {
       router.back();
