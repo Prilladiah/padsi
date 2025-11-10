@@ -1,9 +1,14 @@
+// app/api/laporan/route.ts
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
 export async function GET(request: Request) {
   try {
+    console.log('=== LAPORAN API START ===');
+    console.log('Database URL exists:', !!process.env.DATABASE_URL);
+    
     const { searchParams } = new URL(request.url);
+    console.log('Search params:', Object.fromEntries(searchParams.entries()));
 
     const jenis = searchParams.get('jenis');
     const unitBisnis = searchParams.get('unit_bisnis');
@@ -11,15 +16,15 @@ export async function GET(request: Request) {
     const endDate = searchParams.get('end_date');
     const limit = Number(searchParams.get('limit')) || 50;
 
-    // Validasi limit
-    const finalLimit = Math.min(Math.max(limit, 1), 100); // Batasi antara 1-100
+    const finalLimit = Math.min(Math.max(limit, 1), 100);
 
+    // Coba beberapa variasi query untuk test
     let sqlQuery = `
       SELECT 
-        id_laporan,
-        jenis_laporan,
+        Id_laporan as id_laporan,
+        Jenis_laporan as jenis_laporan,
         periode_laporan,
-        unit_bisnis,
+        unit_blenis as unit_bisnis,
         total_pengeluaran,
         total_pendapatan,
         id_stok
@@ -32,7 +37,7 @@ export async function GET(request: Request) {
 
     if (jenis) {
       paramCount++;
-      sqlQuery += ` AND jenis_laporan = $${paramCount}`;
+      sqlQuery += ` AND Jenis_laporan = $${paramCount}`;
       params.push(jenis);
     }
 
@@ -54,30 +59,36 @@ export async function GET(request: Request) {
       params.push(endDate);
     }
 
-    sqlQuery += ` ORDER BY periode_laporan DESC, id_laporan DESC`;
-    
+    sqlQuery += ` ORDER BY periode_laporan DESC, Id_laporan DESC`;
     paramCount++;
     sqlQuery += ` LIMIT $${paramCount}`;
     params.push(finalLimit);
 
-    console.log('Executing laporan query:', sqlQuery);
-    console.log('With params:', params);
+    console.log('Final SQL Query:', sqlQuery);
+    console.log('Query Params:', params);
 
+    // Eksekusi query
     const result = await query(sqlQuery, params);
+    console.log('Query result rows:', result.rows.length);
 
-    // Tambahkan field yang diharapkan frontend dengan nilai default
+    // Transform data
     const fixedRows = result.rows.map((row: any) => ({
-      ...row,
-      kategori: row.kategori || '-',
-      nama_stok: row.nama_stok || '-',
-      jumlah_stok: row.jumlah_stok || 0,
-      harga_satuan: row.harga_satuan || 0,
-      // Pastikan field yang diperlukan ada
-      periodic_laporan_date: row.periode_laporan || row.periodic_laporan_date,
-      total_pengeluaran: row.total_pengeluaran || 0,
-      total_pendapatan: row.total_pendapatan || 0
+      id_laporan: row.id_laporan,
+      jenis_laporan: row.jenis_laporan,
+      periode_laporan: row.periode_laporan,
+      unit_bisnis: row.unit_bisnis,
+      total_pengeluaran: parseFloat(row.total_pengeluaran) || 0,
+      total_pendapatan: parseFloat(row.total_pendapatan) || 0,
+      id_stok: row.id_stok,
+      kategori: getKategoriFromJenisLaporan(row.jenis_laporan),
+      nama_stok: `Item ${row.id_stok}`,
+      jumlah_stok: 0,
+      harga_satuan: 0,
+      periodic_laporan_date: row.periode_laporan
     }));
 
+    console.log('=== LAPORAN API SUCCESS ===');
+    
     return NextResponse.json({
       success: true,
       data: fixedRows,
@@ -85,14 +96,27 @@ export async function GET(request: Request) {
     });
 
   } catch (error: any) {
-    console.error('Laporan GET Error:', error);
+    console.error('=== LAPORAN API ERROR ===');
+    console.error('Error details:', error);
+    
     return NextResponse.json(
       { 
         success: false, 
         error: 'Gagal mengambil data laporan',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
       },
       { status: 500 }
     );
   }
+}
+
+function getKategoriFromJenisLaporan(jenisLaporan: string): string {
+  const kategoriMap: { [key: string]: string } = {
+    'Pendapatan': 'Pendapatan',
+    'Penjualan': 'Penjualan', 
+    'Pengeluaran': 'Pengeluaran'
+  };
+  
+  return kategoriMap[jenisLaporan] || 'Umum';
 }
