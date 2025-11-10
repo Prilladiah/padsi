@@ -46,7 +46,8 @@ function getPageTitle(pathname: string): string {
     '/dashboard': 'Dashboard',
     '/stok': 'Kelola Stok',
     '/laporan': '',
-    '/laporan/pengeluaran': 'Laporan Pengeluaran',
+    '/laporan/pendapatan': '',
+    '/laporan/pengeluaran': '',
     '/pengeluaran': 'Pengeluaran',
   };
   
@@ -56,7 +57,7 @@ function getPageTitle(pathname: string): string {
 // Helper: Check if current page should show back button
 function shouldShowBackButton(pathname: string): boolean {
   // Tampilkan tombol back untuk laporan/pengeluaran dan laporan/stok
-  return pathname === '/laporan/pengeluaran' || pathname === '/laporan/stok';
+  return pathname === '/laporan/pendapatan' || pathname === '/laporan/pengeluaran'|| pathname === '/laporan/stok';
 }
 
 export default function Header() {
