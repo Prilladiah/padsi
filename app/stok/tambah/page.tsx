@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { useOfflineMode } from '@/hooks/useofflinemode';
-import OfflineStorageManager from '@/app/lib/offlinestorage'; // ✅ TAMBAHKAN INI
+import OfflineStorageManager from '@/app/lib/offlinestorage';
 import Header from '@/components/layout/header';
 
 export default function TambahStokPage() {
@@ -211,7 +211,145 @@ export default function TambahStokPage() {
           </div>
         )}
 
-        {/* Rest of the form - copy from original file */}
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <h1 className="text-2xl font-bold text-gray-800 mb-6">Tambah Stok</h1>
+          
+          <form onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* ID Stok */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">ID Stok</label>
+                <div className="p-2.5 border border-gray-300 rounded-lg bg-gray-100 text-gray-500">
+                  Auto-generated
+                </div>
+              </div>
+              
+              {/* Nama Stok */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Nama Stok</label>
+                <input
+                  type="text"
+                  name="nama"
+                  value={formData.nama}
+                  onChange={handleChange}
+                  className={`w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    errors.nama ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Masukkan nama stok"
+                />
+                {errors.nama && <p className="text-red-500 text-sm">{errors.nama}</p>}
+              </div>
+              
+              {/* Satuan Stok */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Satuan Stok</label>
+                <select
+                  name="satuan"
+                  value={formData.satuan}
+                  onChange={handleChange}
+                  className={`w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    errors.satuan ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                >
+                  <option value="pcs">Pcs</option>
+                  <option value="kg">Kg</option>
+                  <option value="liter">Liter</option>
+                  <option value="meter">Meter</option>
+                  <option value="pack">Pack</option>
+                  <option value="dus">Dus</option>
+                </select>
+                {errors.satuan && <p className="text-red-500 text-sm">{errors.satuan}</p>}
+              </div>
+              
+              {/* Harga Stok */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Harga Stok</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">Rp</span>
+                  <input
+                    type="number"
+                    name="harga"
+                    value={formData.harga}
+                    onChange={handleChange}
+                    className={`w-full p-2.5 pl-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                      errors.harga ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="0"
+                    min="0"
+                  />
+                </div>
+                {errors.harga && <p className="text-red-500 text-sm">{errors.harga}</p>}
+              </div>
+              
+              {/* Tanggal Stok */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Tanggal Stok</label>
+                <input
+                  type="date"
+                  name="tanggal_masuk"
+                  value={formData.tanggal_masuk}
+                  onChange={handleChange}
+                  className={`w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    errors.tanggal_masuk ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                />
+                {errors.tanggal_masuk && <p className="text-red-500 text-sm">{errors.tanggal_masuk}</p>}
+              </div>
+              
+              {/* Jumlah Stok */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Jumlah Stok</label>
+                <input
+                  type="number"
+                  name="jumlah"
+                  value={formData.jumlah}
+                  onChange={handleChange}
+                  className={`w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    errors.jumlah ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="0"
+                  min="0"
+                />
+                {errors.jumlah && <p className="text-red-500 text-sm">{errors.jumlah}</p>}
+              </div>
+              
+              {/* Supplier Stok */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Supplier Stok</label>
+                <input
+                  type="text"
+                  name="supplier"
+                  value={formData.supplier}
+                  onChange={handleChange}
+                  className={`w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                    errors.supplier ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Masukkan nama supplier"
+                />
+                {errors.supplier && <p className="text-red-500 text-sm">{errors.supplier}</p>}
+              </div>
+            </div>
+            
+            {/* Tombol Aksi */}
+            <div className="flex justify-end space-x-4 mt-8 pt-6 border-t border-gray-200">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                disabled={isSubmitting}
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                className="px-6 py-2.5 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Menyimpan...' : 'Simpan'}
+              </button>
+            </div>
+          </form>
+        </div>
         
         <style jsx>{`
           @keyframes fade-in {
@@ -223,4 +361,4 @@ export default function TambahStokPage() {
       </div>
     </div>
   );
-}
+} 

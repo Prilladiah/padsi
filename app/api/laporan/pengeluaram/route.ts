@@ -7,6 +7,18 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const limit = Number(searchParams.get('limit')) || 100;
 
+    // Cek apakah kolom metode_pembayaran ada di tabel stok
+    const checkColumnQuery = `
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'stok' AND column_name = 'metode_pembayaran'
+    `;
+    
+    const columnCheck = await query(checkColumnQuery);
+    const hasMetodePembayaran = columnCheck.rows.length > 0;
+
+    console.log('Stok has metode_pembayaran column:', hasMetodePembayaran);
+
     // Query untuk mengambil data pengeluaran dari stok
     let sqlQuery = `
       SELECT 
@@ -17,6 +29,7 @@ export async function GET(request: Request) {
         (s.jumlah_stok::numeric * s.Harga_stok::numeric) as total_pengeluaran,
         0 as total_pendapatan,
         s.id_stok
+        ${hasMetodePembayaran ? ', COALESCE(s.metode_pembayaran, \'Tunai\') as metode_pembayaran' : ''}
       FROM stok s
       WHERE s.jumlah_stok::numeric > 0
     `;
@@ -27,8 +40,7 @@ export async function GET(request: Request) {
     sqlQuery += ` LIMIT $1`;
     params.push(limit);
 
-    console.log('Executing pengeluaran dari stok query:', sqlQuery);
-    console.log('With params:', params);
+    console.log('Executing pengeluaran dari stok query');
 
     const result = await query(sqlQuery, params);
 
@@ -39,7 +51,8 @@ export async function GET(request: Request) {
       unit_bisnis: row.unit_bisnis,
       total_pengeluaran: parseFloat(row.total_pengeluaran) || 0,
       total_pendapatan: 0,
-      id_stok: row.id_stok
+      id_stok: row.id_stok,
+      metode_pembayaran: hasMetodePembayaran ? (row.metode_pembayaran || 'Tunai') : 'Tunai'
     }));
 
     return NextResponse.json({
@@ -50,6 +63,9 @@ export async function GET(request: Request) {
 
   } catch (error: any) {
     console.error('Laporan Pengeluaran dari Stok Error:', error);
+    console.error('Full error:', error.message);
+    console.error('Stack:', error.stack);
+    
     return NextResponse.json(
       { 
         success: false, 

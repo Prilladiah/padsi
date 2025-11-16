@@ -59,5 +59,11 @@ export const auth = {
     } catch {
       return null;
     }
+  },
+
+  // ✅ TAMBAHKAN METHOD INI
+  isManager: (): boolean => {
+    const user = auth.getCurrentUser();
+    return user?.role === 'manager';
   }
 };

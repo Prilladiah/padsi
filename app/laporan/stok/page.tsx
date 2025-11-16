@@ -1,8 +1,7 @@
-// app/laporan/stok/page.tsx - READ ONLY VERSION
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import Header from '@/components/layout/header'; // Tambahkan import Header
+import Header from '@/components/layout/header';
 
 type UserRole = 'manager' | 'staff';
 
@@ -31,7 +30,6 @@ function uid(prefix = 'u_') {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-// Helper: Get current user from localStorage
 function getCurrentUser(): User {
   try {
     const userStr = localStorage.getItem('current_user');
@@ -83,10 +81,13 @@ export default function LaporanStokPage() {
   const [supplierFilter, setSupplierFilter] = useState<string>('Semua');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
+  const [showFilterModal, setShowFilterModal] = useState(false);
 
-  // ===== PERMISSION - LAPORAN ADALAH READ-ONLY =====
-  const isReadOnly = true; // Semua role hanya bisa VIEW
-  const canExport =  currentUser.role === 'manager';
+  const isReadOnly = true;
+  const canExport = currentUser.role === 'manager';
+  const canGoBack = currentUser.role === 'manager'; // Hanya manager yang bisa back
 
   const showNotification = useCallback((type: Notif['type'], text: string) => {
     const newNotif: Notif = { id: uid('notif_'), type, text };
@@ -138,7 +139,14 @@ export default function LaporanStokPage() {
     }
   }, [search, dateFrom, dateTo, showNotification]);
 
-  // Load user role
+  const handleBack = () => {
+    if (canGoBack) {
+      window.history.back();
+    } else {
+      showNotification('info', 'Hanya manager yang dapat kembali ke halaman sebelumnya');
+    }
+  };
+
   useEffect(() => {
     const user = getCurrentUser();
     setCurrentUser(user);
@@ -175,10 +183,34 @@ export default function LaporanStokPage() {
     setFiltered(result);
   }, [stok, search, supplierFilter, dateFrom, dateTo]);
 
-  const suppliers = ['Semua', ...Array.from(new Set(stok.map(s => s.supplier_stok).filter(Boolean)))];
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount).replace('Rp', 'Rp ');
+  };
+
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}-${month}-${year}`;
+    } catch {
+      return dateString;
+    }
+  };
 
   const totalStok = filtered.reduce((sum, item) => sum + item.jumlah_stok, 0);
   const totalNilai = filtered.reduce((sum, item) => sum + (item.jumlah_stok * item.Harga_stok), 0);
+
+  // Pagination
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const currentData = filtered.slice(startIndex, startIndex + itemsPerPage);
 
   const handleExportCSV = () => {
     if (!canExport) {
@@ -212,317 +244,201 @@ export default function LaporanStokPage() {
     showNotification('success', '✓ Laporan berhasil diexport');
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <Header />
+        <div className="p-8">
+          <div className="bg-gradient-to-r from-blue-700 to-blue-800 rounded-lg shadow-lg p-6">
+            <h1 className="text-2xl font-bold text-white mb-4">Laporan Stok</h1>
+            <div className="bg-white rounded-lg p-8 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
+              <span className="ml-3 text-gray-600 font-medium">Memuat data...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Tambahkan Header di sini */}
+    <div className="min-h-screen bg-gray-100">
       <Header />
       
-      <div className="p-4 md:p-6">
-        <div className="max-w-[1400px] mx-auto">
-          
-          {/* Notifications */}
-          {notifications.map(notif => (
-            <div key={notif.id} className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 animate-scale-in">
-                <div className="p-8 text-center">
-                  <div className="flex items-center justify-center mb-4">
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center ${
-                      notif.type === 'success' ? 'bg-green-100' :
-                      notif.type === 'error' ? 'bg-red-100' :
-                      notif.type === 'warning' ? 'bg-yellow-100' :
-                      'bg-blue-100'
-                    }`}>
-                      <span className={`text-5xl ${
-                        notif.type === 'success' ? 'text-green-500' :
-                        notif.type === 'error' ? 'text-red-500' :
-                        notif.type === 'warning' ? 'text-yellow-500' :
-                        'text-blue-500'
-                      }`}>
-                        {notif.type === 'success' ? '✓' : notif.type === 'error' ? '✗' : notif.type === 'warning' ? '⚠' : 'ℹ'}
-                      </span>
-                    </div>
-                  </div>
-                  <h3 className="text-2xl font-bold text-gray-800 mb-3">
-                    {notif.type === 'success' ? 'Berhasil!' : 
-                     notif.type === 'error' ? 'Gagal!' : 
-                     notif.type === 'warning' ? 'Peringatan!' : 
-                     'Informasi'}
-                  </h3>
-                  <p className="text-gray-600 mb-8 text-lg">{notif.text}</p>
-                  <button
-                    onClick={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))}
-                    className={`px-10 py-3 rounded-lg font-semibold text-white transition-colors ${
-                      notif.type === 'success' ? 'bg-green-500 hover:bg-green-600' :
-                      notif.type === 'error' ? 'bg-red-500 hover:bg-red-600' :
-                      notif.type === 'warning' ? 'bg-yellow-500 hover:bg-yellow-600' :
-                      'bg-blue-500 hover:bg-blue-600'
-                    }`}
-                  >
-                    OK
-                  </button>
-                </div>
+      {/* Notifications */}
+      {notifications.map(notif => (
+        <div key={notif.id} className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div className="p-8 text-center">
+              <div className={`text-6xl mb-4 ${
+                notif.type === 'success' ? 'text-green-500' :
+                notif.type === 'error' ? 'text-red-500' : 'text-blue-500'
+              }`}>
+                {notif.type === 'success' ? '✓' : notif.type === 'error' ? '✗' : 'ℹ'}
               </div>
+              <p className="text-gray-800 mb-6 text-lg">{notif.text}</p>
+              <button
+                onClick={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))}
+                className={`px-8 py-2 rounded-lg font-semibold text-white ${
+                  notif.type === 'success' ? 'bg-green-500' :
+                  notif.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+                }`}
+              >
+                OK
+              </button>
             </div>
-          ))}
+          </div>
+        </div>
+      ))}
 
-          {/* Header Content (yang sebelumnya di header utama) */}
-          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-800 mb-2">Laporan Stok</h1>
-                <div className="flex items-center gap-3 text-sm flex-wrap">
-                  <span className="px-3 py-1 rounded-full bg-purple-100 text-purple-700 font-medium">
-                    👤 {currentUser.role.toUpperCase()}
-                  </span>
-                </div>
-
-                {/* Read-Only Info Banner */}
-                <div className="mt-3 flex items-center gap-2 text-blue-600 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
-                    <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd"/>
+      <div className="p-8">
+        {/* Header Section */}
+        <div className="bg-gradient-to-r from-blue-900 to-blue-800 rounded-lg shadow-lg p-6 mb-6">
+          <div className="flex justify-between items-start mb-6">
+            <div className="flex items-center gap-4">
+              {/* Tombol Back - hanya untuk manager */}
+              {canGoBack ? (
+                <button 
+                  onClick={handleBack}
+                  className="text-white hover:bg-blue-600 p-2 rounded-lg transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                   </svg>
-                  <span className="text-sm font-medium">
-                    Laporan ini hanya untuk melihat data.
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => fetchLaporanData()}
-                  className="px-4 py-2 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium text-gray-700"
-                >
-                  🔄 Refresh
                 </button>
-
-                {canExport && (
-                  <>
-                    <button
-                      onClick={handleExportCSV}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium shadow-md"
-                    >
-                      📥 Export CSV
-                    </button>
-                  </>
-                )}
-              </div>
+              ) : (
+                // Placeholder untuk menjaga layout konsisten
+                <div className="w-10 h-10"></div>
+              )}
+              <h1 className="text-2xl font-bold text-white">Laporan Stok</h1>
             </div>
-          </div>
-
-          {/* Filters */}
-          <div className="bg-white rounded-xl shadow-md p-5 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Cari</label>
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="🔍 Cari nama stok atau supplier..."
-                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 focus:border-blue-500 focus:outline-none transition-colors"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Supplier</label>
-                <select
-                  value={supplierFilter}
-                  onChange={(e) => setSupplierFilter(e.target.value)}
-                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 focus:border-blue-500 focus:outline-none transition-colors"
+            <div className="flex gap-3">
+              <button className="px-6 py-2.5 bg-white text-blue-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 font-medium shadow-md">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                Filter
+              </button>
+              {canExport && (
+                <button 
+                  onClick={handleExportCSV}
+                  className="px-6 py-2.5 bg-white text-blue-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 font-medium shadow-md"
                 >
-                  {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Dari Tanggal</label>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 focus:border-blue-500 focus:outline-none transition-colors"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Sampai Tanggal</label>
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 focus:border-blue-500 focus:outline-none transition-colors"
-                />
-              </div>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Download
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-blue-100 text-sm font-medium mb-1">Total Items</p>
-                  <p className="text-3xl font-bold">{filtered.length}</p>
-                </div>
-                <div className="text-5xl opacity-50">📦</div>
+          {/* Total Sisa Stok Card */}
+          <div className="bg-white rounded-lg p-5">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800 mb-1">Total Sisa Stok</h2>
+                <p className="text-sm text-gray-600">Total keseluruhan stok</p>
               </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-green-100 text-sm font-medium mb-1">Total Stok</p>
-                  <p className="text-3xl font-bold">{totalStok.toLocaleString()}</p>
+              <div className="text-right">
+                <div className="text-3xl font-bold text-blue-700">
+                  {totalStok}
                 </div>
-                <div className="text-5xl opacity-50">📊</div>
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-purple-100 text-sm font-medium mb-1">Total Nilai</p>
-                  <p className="text-2xl font-bold">Rp {totalNilai.toLocaleString('id-ID')}</p>
-                </div>
-                <div className="text-5xl opacity-50">💰</div>
+                <p className="text-sm text-gray-600 mt-1">dari {filtered.length} Transaksi</p>
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Table */}
-          <div className="bg-white rounded-xl shadow-md overflow-hidden print:shadow-none">
-            {isLoading ? (
-              <div className="p-12 text-center">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-                <p className="mt-4 text-gray-600 font-medium">Memuat laporan...</p>
-              </div>
-            ) : (
+        {/* Kondisi jika tidak ada data */}
+        {filtered.length === 0 ? (
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <div className="text-6xl mb-4">📊</div>
+            <p className="text-lg font-medium text-gray-600">Tidak ada data stok</p>
+            <p className="text-sm text-gray-500 mt-2">
+              Data stok akan muncul ketika ada transaksi di database
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Tabel Stok */}
+            <div className="bg-white rounded-lg shadow overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gradient-to-r from-gray-100 to-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-bold text-gray-700 border-b-2">ID</th>
-                      <th className="px-4 py-3 text-left font-bold text-gray-700 border-b-2">Nama Stok</th>
-                      <th className="px-4 py-3 text-left font-bold text-gray-700 border-b-2">Supplier</th>
-                      <th className="px-4 py-3 text-right font-bold text-gray-700 border-b-2">Jumlah</th>
-                      <th className="px-4 py-3 text-center font-bold text-gray-700 border-b-2">Satuan</th>
-                      <th className="px-4 py-3 text-right font-bold text-gray-700 border-b-2">Harga</th>
-                      <th className="px-4 py-3 text-right font-bold text-gray-700 border-b-2">Total Nilai</th>
-                      <th className="px-4 py-3 text-center font-bold text-gray-700 border-b-2">Tanggal</th>
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-blue-900">
+                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
+                        Tanggal
+                      </th>
+                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
+                        Nama Produk
+                      </th>
+                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
+                        Sisa Stok
+                      </th>
+                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
+                        Supplier
+                      </th>
+                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
+                        Harga
+                      </th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {filtered.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="p-12 text-center text-gray-500">
-                          <div className="text-6xl mb-4">📋</div>
-                          <p className="text-lg font-medium">Tidak ada data laporan</p>
-                          <p className="text-sm mt-2">Sesuaikan filter untuk melihat data</p>
+                  <tbody className="bg-white">
+                    {currentData.map((item, index) => (
+                      <tr key={item.id_stok ?? index} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          {formatDate(item.tanggal_stok)}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-medium text-blue-700">
+                          {item.nama_stok}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          {item.jumlah_stok}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          {item.supplier_stok}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">
+                          {formatCurrency(item.Harga_stok)}
                         </td>
                       </tr>
-                    ) : (
-                      filtered.map((row, idx) => (
-                        <tr
-                          key={row.id_stok ?? idx}
-                          className="border-b hover:bg-gray-50 transition-colors"
-                        >
-                          <td className="px-4 py-3 text-gray-700 font-medium">{row.id_stok ?? '-'}</td>
-                          <td className="px-4 py-3 text-gray-800 font-medium">{row.nama_stok}</td>
-                          <td className="px-4 py-3 text-gray-600">{row.supplier_stok}</td>
-                          <td className="px-4 py-3 text-right text-gray-800 font-semibold">
-                            {row.jumlah_stok?.toLocaleString?.() ?? row.jumlah_stok}
-                          </td>
-                          <td className="px-4 py-3 text-center text-gray-600">
-                            <span className="px-2 py-1 bg-gray-100 rounded-md text-xs font-medium">
-                              {row.satuan_stok}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right text-gray-800 font-semibold">
-                            Rp {row.Harga_stok?.toLocaleString?.('id-ID') ?? row.Harga_stok}
-                          </td>
-                          <td className="px-4 py-3 text-right text-gray-800 font-bold">
-                            Rp {(row.jumlah_stok * row.Harga_stok).toLocaleString('id-ID')}
-                          </td>
-                          <td className="px-4 py-3 text-center text-gray-600">{row.tanggal_stok}</td>
-                        </tr>
-                      ))
-                    )}
+                    ))}
                   </tbody>
-                  <tfoot className="bg-gray-100 font-bold">
-                    <tr>
-                      <td colSpan={3} className="px-4 py-3 text-right text-gray-800">TOTAL:</td>
-                      <td className="px-4 py-3 text-right text-blue-600">{totalStok.toLocaleString()}</td>
-                      <td className="px-4 py-3"></td>
-                      <td className="px-4 py-3"></td>
-                      <td className="px-4 py-3 text-right text-purple-600">
-                        Rp {totalNilai.toLocaleString('id-ID')}
-                      </td>
-                      <td className="px-4 py-3"></td>
-                    </tr>
-                  </tfoot>
                 </table>
               </div>
-            )}
-          </div>
 
-          {/* Footer */}
-          <div className="mt-6 bg-white rounded-xl shadow-md p-4 print:hidden">
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm">
-              <div className="text-gray-700 font-medium">
-                📊 Menampilkan <span className="font-bold text-blue-600">{filtered.length}</span> dari {stok.length} total items
-              </div>
-              <div className="text-gray-500 text-xs">
-                Laporan dibuat: {new Date().toLocaleString('id-ID')}
+              {/* Pagination */}
+              <div className="bg-gray-50 px-6 py-4 flex justify-between items-center border-t border-gray-200">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className={`text-sm font-medium transition-colors ${
+                    currentPage === 1 
+                      ? 'text-gray-400 cursor-not-allowed' 
+                      : 'text-blue-700 hover:text-blue-800'
+                  }`}
+                >
+                  &lt; Prev
+                </button>
+                <span className="text-sm text-gray-600">
+                  {currentPage}/{totalPages || 1}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className={`text-sm font-medium transition-colors ${
+                    currentPage === totalPages 
+                      ? 'text-gray-400 cursor-not-allowed' 
+                      : 'text-blue-700 hover:text-blue-800'
+                  }`}
+                >
+                  Next &gt;
+                </button>
               </div>
             </div>
-          </div>
-
-          <style jsx>{`
-            @keyframes scale-in {
-              from {
-                transform: scale(0.9);
-                opacity: 0;
-              }
-              to {
-                transform: scale(1);
-                opacity: 1;
-              }
-            }
-
-            @keyframes fade-in {
-              from {
-                opacity: 0;
-              }
-              to {
-                opacity: 1;
-              }
-            }
-
-            .animate-scale-in {
-              animation: scale-in 0.3s ease-out;
-            }
-
-            .animate-fade-in {
-              animation: fade-in 0.2s ease-out;
-            }
-
-            @media print {
-              body {
-                background: white;
-              }
-              .print\\:hidden {
-                display: none !important;
-              }
-              .print\\:shadow-none {
-                box-shadow: none !important;
-              }
-            }
-          `}</style>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
