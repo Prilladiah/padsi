@@ -1,359 +1,305 @@
-// app/api/stok/route.ts - COMPLETE FIXED VERSION
+// app/api/stok/route.ts - VERSI DENGAN 4 DATA ASLI
 import { NextRequest, NextResponse } from 'next/server';
-import { query, checkDatabaseConnection } from '@/lib/db';
 
-// Cache untuk fallback data (simple in-memory cache)
-let cache = {
-  data: null as any,
-  timestamp: 0,
-  ttl: 30000 // 30 seconds
-};
+// Mock database - HANYA 4 DATA ASLI
+let stokDatabase = [
+  {
+    id_stok: 1,
+    nama_stok: 'Cup Paper 120',
+    unit_bisnis: 'Cafe',
+    supplier_stok: 'Supplier Packaging',
+    tanggal_stok: '2024-01-06',
+    jumlah_stok: 10,
+    Harga_stok: 0,
+  },
+  {
+    id_stok: 2,
+    nama_stok: 'Gula Pasir',
+    unit_bisnis: 'Cafe',
+    supplier_stok: 'Supplier Gula Maris',
+    tanggal_stok: '2024-01-06',
+    jumlah_stok: 50,
+    Harga_stok: 50000,
+  },
+  {
+    id_stok: 3,
+    nama_stok: 'Susu Full Cream',
+    unit_bisnis: 'Cafe',
+    supplier_stok: 'PT Susu Segar',
+    tanggal_stok: '2024-01-06',
+    jumlah_stok: 10,
+    Harga_stok: 30000,
+  },
+  {
+    id_stok: 4,
+    nama_stok: 'Kopi Arabika',
+    unit_bisnis: 'Cafe',
+    supplier_stok: 'Supplier Kopi Juwa',
+    tanggal_stok: '2024-01-06',
+    jumlah_stok: 50,
+    Harga_stok: 20000,
+  },
+];
 
-// GET /api/stok - Ambil semua stok dengan fallback
+// GET: Ambil semua stok
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
+    const limit = parseInt(searchParams.get('limit') || '100');
     const search = searchParams.get('search') || '';
     
-    const offset = (page - 1) * limit;
-
-    console.log('🔍 GET Query parameters:', { page, limit, search, offset });
-
-    // Check database connection first
-    const isDbHealthy = await checkDatabaseConnection();
-    
-    if (!isDbHealthy) {
-      console.warn('⚠️ Database unhealthy, using cache fallback');
-      
-      // Return cached data if available
-      if (cache.data && Date.now() - cache.timestamp < cache.ttl) {
-        return NextResponse.json({
-          success: true,
-          data: cache.data,
-          pagination: { page, limit, total: cache.data.length, totalPages: 1 },
-          cached: true,
-          message: 'Using cached data (database temporarily unavailable)'
-        });
-      }
-      
-      throw new Error('Database connection failed');
-    }
-
-    let sql = `
-      SELECT 
-        id_stok,
-        nama_stok,
-        satuan_stok,
-        supplier_stok,
-        tanggal_stok,
-        jumlah_stok,
-        "Harga_stok"
-      FROM stok 
-    `;
-    
-    const params: any[] = [];
-    let whereClause = '';
-
-    if (search) {
-      whereClause = ` WHERE nama_stok ILIKE $1 OR supplier_stok ILIKE $1 OR satuan_stok ILIKE $1`;
-      params.push(`%${search}%`);
-    }
-
-    sql += whereClause;
-    sql += ` ORDER BY id_stok DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
-
-    console.log('🔵 Executing query with params:', { params });
-    
-    const result = await query(sql, params);
-    console.log('✅ Query successful, rows:', result.rows.length);
-    
-    // Hitung total dengan query terpisah untuk performa
-    let countSql = 'SELECT COUNT(*) as total FROM stok';
-    const countParams: any[] = [];
+    // Filter berdasarkan search
+    let filteredData = [...stokDatabase];
     
     if (search) {
-      countSql += ' WHERE nama_stok ILIKE $1 OR supplier_stok ILIKE $1 OR satuan_stok ILIKE $1';
-      countParams.push(`%${search}%`);
+      const searchLower = search.toLowerCase();
+      filteredData = filteredData.filter(item =>
+        item.nama_stok.toLowerCase().includes(searchLower) ||
+        item.supplier_stok.toLowerCase().includes(searchLower) ||
+        item.unit_bisnis.toLowerCase().includes(searchLower) ||
+        String(item.jumlah_stok).includes(searchLower) ||
+        String(item.Harga_stok).includes(searchLower)
+      );
     }
     
-    const countResult = await query(countSql, countParams);
-    const total = parseInt(countResult.rows[0].total);
-    const totalPages = Math.ceil(total / limit);
-
-    // Update cache
-    cache = {
-      data: result.rows,
-      timestamp: Date.now(),
-      ttl: 30000
-    };
-
-    console.log('✅ API GET Response:', {
-      dataCount: result.rows.length,
-      total,
-      totalPages
-    });
-
+    // Sorting berdasarkan tanggal terbaru
+    filteredData.sort((a, b) => 
+      new Date(b.tanggal_stok).getTime() - new Date(a.tanggal_stok).getTime()
+    );
+    
+    // Pagination
+    const startIndex = (page - 1) * limit;
+    const endIndex = page * limit;
+    const paginatedData = filteredData.slice(startIndex, endIndex);
+    
+    // Format response
     return NextResponse.json({
       success: true,
-      data: result.rows,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages
-      }
+      data: paginatedData,
     });
     
   } catch (error: any) {
-    console.error('🚨 API GET Error:', {
-      name: error.name,
-      message: error.message,
-      code: error.code
-    });
-    
-    // Fallback to cached data
-    if (cache.data) {
-      console.warn('🔄 Falling back to cached data');
-      return NextResponse.json({
-        success: true,
-        data: cache.data,
-        pagination: { page: 1, limit: cache.data.length, total: cache.data.length, totalPages: 1 },
-        cached: true,
-        message: 'Using cached data due to database error'
-      });
-    }
-    
+    console.error('GET stok error:', error);
     return NextResponse.json(
       { 
         success: false, 
-        error: 'Gagal memuat data stok',
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Database temporarily unavailable'
+        error: 'Gagal mengambil data stok',
+        details: error.message 
       },
-      { status: 503 } // Service Unavailable
+      { status: 500 }
     );
   }
 }
 
-// POST /api/stok - Tambah stok baru
+// POST: Tambah stok baru
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
-    console.log('📝 POST Request - Raw Body:', JSON.stringify(body, null, 2));
+    console.log('POST stok request:', body);
     
-    const { 
-      nama_stok, 
-      satuan_stok, 
-      supplier_stok, 
-      tanggal_stok, 
-      jumlah_stok, 
-      Harga_stok 
-    } = body;
-
-    // ✅ Validasi required fields
-    if (!nama_stok) {
+    // Validasi
+    if (!body.nama_stok || String(body.nama_stok).trim() === '') {
       return NextResponse.json(
         { success: false, error: 'Nama stok wajib diisi' },
         { status: 400 }
       );
     }
-
-    // Validasi dan konversi tipe data
-    const jumlahNumber = Number(jumlah_stok);
-    const hargaNumber = Number(Harga_stok);
-
-    if (isNaN(jumlahNumber) || jumlahNumber < 0) {
+    
+    if (!body.unit_bisnis || String(body.unit_bisnis).trim() === '') {
       return NextResponse.json(
-        { success: false, error: 'Jumlah stok harus berupa angka positif' },
+        { success: false, error: 'Unit bisnis wajib diisi' },
         { status: 400 }
       );
     }
-
-    if (isNaN(hargaNumber) || hargaNumber < 0) {
+    
+    if (!body.jumlah_stok || Number(body.jumlah_stok) <= 0) {
       return NextResponse.json(
-        { success: false, error: 'Harga stok harus berupa angka positif' },
+        { success: false, error: 'Jumlah stok harus lebih dari 0' },
         { status: 400 }
       );
     }
-
-    // Data yang akan di-insert
-    const insertData = {
-      nama_stok: nama_stok.trim(),
-      satuan_stok: (satuan_stok || 'pcs').trim(),
-      supplier_stok: (supplier_stok || 'Tidak ada supplier').trim(),
-      tanggal_stok: tanggal_stok || new Date().toISOString().split('T')[0],
-      jumlah_stok: jumlahNumber,
-      Harga_stok: hargaNumber
+    
+    if (body.Harga_stok === undefined || Number(body.Harga_stok) < 0) {
+      return NextResponse.json(
+        { success: false, error: 'Harga tidak boleh negatif' },
+        { status: 400 }
+      );
+    }
+    
+    // Generate ID baru
+    const newId = stokDatabase.length > 0 
+      ? Math.max(...stokDatabase.map(item => item.id_stok)) + 1 
+      : 1;
+    
+    const newStok = {
+      id_stok: newId,
+      nama_stok: body.nama_stok.trim(),
+      unit_bisnis: body.unit_bisnis.trim(),
+      supplier_stok: body.supplier_stok?.trim() || 'Tidak ada supplier',
+      tanggal_stok: body.tanggal_stok || new Date().toISOString().split('T')[0],
+      jumlah_stok: Number(body.jumlah_stok),
+      Harga_stok: Number(body.Harga_stok) || 0,
     };
-
-    console.log('✅ Validation passed - Inserting data:', insertData);
-
-    // Execute INSERT query
-    const result = await query(
-      `INSERT INTO stok (nama_stok, satuan_stok, supplier_stok, tanggal_stok, jumlah_stok, "Harga_stok") 
-       VALUES ($1, $2, $3, $4, $5, $6) 
-       RETURNING *`,
-      [
-        insertData.nama_stok,
-        insertData.satuan_stok,
-        insertData.supplier_stok,
-        insertData.tanggal_stok,
-        insertData.jumlah_stok,
-        insertData.Harga_stok
-      ]
+    
+    // Cek duplikasi
+    const isDuplicate = stokDatabase.some(item => 
+      item.nama_stok.toLowerCase() === newStok.nama_stok.toLowerCase() && 
+      item.supplier_stok.toLowerCase() === newStok.supplier_stok.toLowerCase() &&
+      item.unit_bisnis.toLowerCase() === newStok.unit_bisnis.toLowerCase()
     );
-
-    // Invalidate cache
-    cache.data = null;
-
-    console.log('✅ POST Success - New ID:', result.rows[0]?.id_stok);
-
+    
+    if (isDuplicate) {
+      return NextResponse.json(
+        { success: false, error: 'Stok dengan nama, supplier, dan unit bisnis yang sama sudah ada' },
+        { status: 409 }
+      );
+    }
+    
+    // Simpan ke database
+    stokDatabase.push(newStok);
+    
+    console.log('Stok berhasil ditambahkan:', newStok);
+    
     return NextResponse.json({
       success: true,
-      data: result.rows[0],
-      message: 'Stok berhasil ditambahkan'
+      message: 'Stok berhasil ditambahkan',
+      data: newStok
     }, { status: 201 });
-
-  } catch (error: any) {
-    console.error('❌ POST API Error:', error);
     
+  } catch (error: any) {
+    console.error('POST stok error:', error);
     return NextResponse.json(
       { 
         success: false, 
         error: 'Gagal menambahkan stok',
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        details: error.message 
       },
       { status: 500 }
     );
   }
 }
 
-// PUT /api/stok - Update stok
+// PUT: Update stok
 export async function PUT(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
+    const id = parseInt(searchParams.get('id') || '0');
     const body = await request.json();
+    
+    console.log('PUT stok request:', { id, body });
     
     if (!id) {
       return NextResponse.json(
-        { success: false, error: 'ID stok harus disertakan' },
+        { success: false, error: 'ID stok tidak valid' },
         { status: 400 }
       );
     }
-
-    const { 
-      nama_stok, 
-      satuan_stok, 
-      supplier_stok, 
-      tanggal_stok, 
-      jumlah_stok, 
-      Harga_stok 
-    } = body;
-
-    // Validasi required fields
-    if (!nama_stok) {
+    
+    // Cari stok
+    const index = stokDatabase.findIndex(item => item.id_stok === id);
+    
+    if (index === -1) {
       return NextResponse.json(
-        { success: false, error: 'Nama stok wajib diisi' },
+        { success: false, error: 'Stok tidak ditemukan' },
+        { status: 404 }
+      );
+    }
+    
+    // Validasi
+    if (body.jumlah_stok !== undefined && Number(body.jumlah_stok) <= 0) {
+      return NextResponse.json(
+        { success: false, error: 'Jumlah stok harus lebih dari 0' },
         { status: 400 }
       );
     }
-
+    
+    if (body.Harga_stok !== undefined && Number(body.Harga_stok) < 0) {
+      return NextResponse.json(
+        { success: false, error: 'Harga tidak boleh negatif' },
+        { status: 400 }
+      );
+    }
+    
     // Update data
-    const updateData = {
-      nama_stok: nama_stok.trim(),
-      satuan_stok: (satuan_stok || 'pcs').trim(),
-      supplier_stok: (supplier_stok || 'Tidak ada supplier').trim(),
-      tanggal_stok: tanggal_stok || new Date().toISOString().split('T')[0],
-      jumlah_stok: Number(jumlah_stok) || 0,
-      Harga_stok: Number(Harga_stok) || 0
+    const updatedStok = {
+      ...stokDatabase[index],
+      nama_stok: body.nama_stok?.trim() || stokDatabase[index].nama_stok,
+      unit_bisnis: body.unit_bisnis?.trim() || stokDatabase[index].unit_bisnis,
+      supplier_stok: body.supplier_stok?.trim() || stokDatabase[index].supplier_stok,
+      tanggal_stok: body.tanggal_stok || stokDatabase[index].tanggal_stok,
+      jumlah_stok: body.jumlah_stok !== undefined ? Number(body.jumlah_stok) : stokDatabase[index].jumlah_stok,
+      Harga_stok: body.Harga_stok !== undefined ? Number(body.Harga_stok) : stokDatabase[index].Harga_stok,
     };
-
-    const result = await query(
-      `UPDATE stok 
-       SET nama_stok = $1, satuan_stok = $2, supplier_stok = $3, 
-           tanggal_stok = $4, jumlah_stok = $5, "Harga_stok" = $6
-       WHERE id_stok = $7 
-       RETURNING *`,
-      [
-        updateData.nama_stok,
-        updateData.satuan_stok,
-        updateData.supplier_stok,
-        updateData.tanggal_stok,
-        updateData.jumlah_stok,
-        updateData.Harga_stok,
-        parseInt(id)
-      ]
-    );
-
-    // Invalidate cache
-    cache.data = null;
-
+    
+    stokDatabase[index] = updatedStok;
+    
+    console.log('Stok berhasil diperbarui:', updatedStok);
+    
     return NextResponse.json({
       success: true,
-      data: result.rows[0],
-      message: 'Stok berhasil diupdate'
+      message: 'Stok berhasil diperbarui',
+      data: updatedStok
     });
-
-  } catch (error: any) {
-    console.error('❌ PUT API Error:', error);
     
+  } catch (error: any) {
+    console.error('PUT stok error:', error);
     return NextResponse.json(
       { 
         success: false, 
-        error: 'Gagal mengupdate stok',
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        error: 'Gagal memperbarui stok',
+        details: error.message 
       },
       { status: 500 }
     );
   }
 }
 
-// DELETE /api/stok - Hapus stok
+// DELETE: Hapus stok
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const id = searchParams.get('id');
+    const id = parseInt(searchParams.get('id') || '0');
+    
+    console.log('DELETE stok request:', { id });
     
     if (!id) {
       return NextResponse.json(
-        { success: false, error: 'ID stok harus disertakan' },
+        { success: false, error: 'ID stok tidak valid' },
         { status: 400 }
       );
     }
-
-    const result = await query(
-      'DELETE FROM stok WHERE id_stok = $1 RETURNING *',
-      [parseInt(id)]
-    );
-
-    if (result.rowCount === 0) {
+    
+    // Cari stok
+    const index = stokDatabase.findIndex(item => item.id_stok === id);
+    
+    if (index === -1) {
       return NextResponse.json(
-        { success: false, error: 'Data stok tidak ditemukan' },
+        { success: false, error: 'Stok tidak ditemukan' },
         { status: 404 }
       );
     }
-
-    // Invalidate cache
-    cache.data = null;
-
+    
+    // Hapus dari database
+    const deletedStok = stokDatabase[index];
+    stokDatabase = stokDatabase.filter(item => item.id_stok !== id);
+    
+    console.log('Stok berhasil dihapus:', deletedStok);
+    
     return NextResponse.json({
       success: true,
-      data: result.rows[0],
-      message: 'Stok berhasil dihapus'
+      message: 'Stok berhasil dihapus',
+      data: deletedStok
     });
-
-  } catch (error: any) {
-    console.error('❌ DELETE API Error:', error);
     
+  } catch (error: any) {
+    console.error('DELETE stok error:', error);
     return NextResponse.json(
       { 
         success: false, 
         error: 'Gagal menghapus stok',
-        message: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        details: error.message 
       },
       { status: 500 }
     );

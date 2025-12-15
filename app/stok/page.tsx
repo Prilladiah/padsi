@@ -1,29 +1,20 @@
-// app/stok/page.tsx - FIGMA DESIGN COMPLETE
+// app/stok/page.tsx - HAPUS TOMBOL SINKRONKAN
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Header from '@/components/layout/header';
+import * as XLSX from 'xlsx';
 
 type StokItem = {
   id_stok?: number;
   nama_stok: string;
-  satuan_stok: string;
+  unit_bisnis: string;
   supplier_stok: string;
   tanggal_stok: string;
   jumlah_stok: number;
   Harga_stok: number;
   _offlineId?: string;
   _pending?: boolean;
-};
-
-type PendingAction = {
-  id: string;
-  method: 'POST' | 'PUT' | 'DELETE';
-  url: string;
-  body?: any;
-  createdAt: string;
-  attempts?: number;
-  lastError?: string | null;
 };
 
 type Notif = {
@@ -44,9 +35,16 @@ type ConfirmDialog = {
   onCancel: () => void;
 };
 
+type CSVImportResult = {
+  success: boolean;
+  count: number;
+  errors: string[];
+  data?: Partial<StokItem>[];
+};
+
 const CACHE_KEY = 'stok_cache_v2';
-const PENDING_KEY = 'stok_pending_v2';
 const LOCAL_ONLY_KEY = 'stok_localonly_v2';
+const OFFLINE_MODE_KEY = 'stok_offlinemode_v2';
 
 function uid(prefix = 'u_') {
   return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -95,38 +93,240 @@ function writeJSON<T>(key: string, data: T) {
 
 function toApiPayload(item: Partial<StokItem> | any) {
   return {
-    nama_stok: String(item.nama_stok ?? item.nama ?? ''),
-    satuan_stok: String(item.satuan_stok ?? item.satuan ?? 'pcs'),
-    supplier_stok: String(item.supplier_stok ?? item.supplier ?? 'Tidak ada supplier'),
-    tanggal_stok: String(item.tanggal_stok ?? item.tanggal ?? new Date().toISOString().split('T')[0]),
-    jumlah_stok: Number(item.jumlah_stok ?? item.jumlah ?? 0),
-    Harga_stok: Number(item.Harga_stok ?? item.Harga ?? 0),
+    nama_stok: String(item.nama_stok ?? item.nama ?? item['Nama Stok'] ?? item['nama'] ?? ''),
+    unit_bisnis: String(item.unit_bisnis ?? item.unit ?? item['Unit Bisnis'] ?? item['unit'] ?? ''),
+    supplier_stok: String(item.supplier_stok ?? item.supplier ?? item['Supplier Stok'] ?? item['supplier'] ?? 'Tidak ada supplier'),
+    tanggal_stok: String(item.tanggal_stok ?? item.tanggal ?? item['Tanggal Stok'] ?? item['tanggal'] ?? new Date().toISOString().split('T')[0]),
+    jumlah_stok: Number(item.jumlah_stok ?? item.jumlah ?? item['Jumlah Stok'] ?? item['jumlah'] ?? 0),
+    Harga_stok: Number(item.Harga_stok ?? item.Harga ?? item['Harga Stok'] ?? item['harga'] ?? 0),
   };
 }
 
+// ============= FUNGSI IMPORT EXCEL BARU =============
+const downloadTemplate = () => {
+  const templateData = [
+    ['Nama Stok', 'Unit Bisnis', 'Supplier Stok', 'Tanggal Stok (YYYY-MM-DD)', 'Jumlah Stok', 'Harga Stok'],
+    ['Cup Paper 120', 'Cafe', 'Supplier Packaging', '2024-01-06', '10', '0'],
+    ['Gula Pasir', 'Cafe', 'Supplier Gula', '2024-01-06', '50', '50000'],
+    ['Susu Full Cream', 'Cafe', 'PT Susu Segar', '2024-01-06', '10', '30000'],
+    ['Kopi Arabika', 'Cafe', 'Supplier Kopi', '2024-01-06', '50', '20000']
+  ];
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(templateData);
+  XLSX.utils.book_append_sheet(wb, ws, 'Template Stok');
+  
+  const wscols = [
+    { wch: 20 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 15 }, { wch: 15 }
+  ];
+  ws['!cols'] = wscols;
+  
+  XLSX.writeFile(wb, 'Template_Import_Stok.xlsx');
+};
+
+const processExcelFile = (file: File): Promise<CSVImportResult> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    const errors: string[] = [];
+    const importedData: Partial<StokItem>[] = [];
+
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        
+        const rows = jsonData.slice(1); // Skip header row
+        
+        rows.forEach((row, index) => {
+          if (!row || row.length === 0 || !row[0]) return;
+          
+          try {
+            const nama_stok = String(row[0] || '').trim();
+            const unit_bisnis = String(row[1] || 'Cafe').trim();
+            const supplier_stok = String(row[2] || 'Tidak ada supplier').trim();
+            const tanggal_stok = String(row[3] || new Date().toISOString().split('T')[0]).trim();
+            const jumlah_stok = Number(row[4] || 0);
+            const Harga_stok = Number(row[5] || 0);
+            
+            // Validasi data
+            if (!nama_stok) {
+              errors.push(`Baris ${index + 2}: Nama stok tidak boleh kosong`);
+              return;
+            }
+            
+            if (jumlah_stok <= 0) {
+              errors.push(`Baris ${index + 2}: Jumlah stok harus lebih dari 0`);
+              return;
+            }
+            
+            if (Harga_stok < 0) {
+              errors.push(`Baris ${index + 2}: Harga tidak boleh negatif`);
+              return;
+            }
+            
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (!dateRegex.test(tanggal_stok)) {
+              errors.push(`Baris ${index + 2}: Format tanggal harus YYYY-MM-DD (contoh: 2024-01-06)`);
+              return;
+            }
+            
+            importedData.push({
+              nama_stok,
+              unit_bisnis,
+              supplier_stok,
+              tanggal_stok,
+              jumlah_stok,
+              Harga_stok
+            });
+            
+          } catch (error: any) {
+            errors.push(`Baris ${index + 2}: Error parsing data - ${error.message}`);
+          }
+        });
+        
+        resolve({
+          success: errors.length === 0,
+          count: importedData.length,
+          errors,
+          data: importedData
+        });
+        
+      } catch (error: any) {
+        errors.push(`Error membaca file: ${error.message}`);
+        resolve({
+          success: false,
+          count: 0,
+          errors,
+          data: []
+        });
+      }
+    };
+    
+    reader.onerror = () => {
+      resolve({
+        success: false,
+        count: 0,
+        errors: ['Gagal membaca file'],
+        data: []
+      });
+    };
+    
+    reader.readAsBinaryString(file);
+  });
+};
+
+// ============= FUNGSI IMPORT KE DATABASE =============
+const importToDatabase = async (data: Partial<StokItem>[]): Promise<{ success: number; failed: number; errors: string[] }> => {
+  const results = {
+    success: 0,
+    failed: 0,
+    errors: [] as string[]
+  };
+
+  if (!data || data.length === 0) {
+    return results;
+  }
+
+  try {
+    // Simpan data ke database satu per satu
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      
+      try {
+        const payload = toApiPayload(item);
+        const res = await fetchWithTimeout('/api/stok', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }, 10000);
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) {
+            results.success++;
+          } else {
+            results.failed++;
+            results.errors.push(`Baris ${i + 1}: ${json.error || 'Gagal menyimpan'}`);
+          }
+        } else {
+          results.failed++;
+          results.errors.push(`Baris ${i + 1}: HTTP ${res.status}`);
+        }
+      } catch (error: any) {
+        results.failed++;
+        results.errors.push(`Baris ${i + 1}: ${error.message || 'Error jaringan'}`);
+      }
+    }
+  } catch (error: any) {
+    results.errors.push(`Error proses: ${error.message}`);
+  }
+
+  return results;
+};
+
 export default function StokPage() {
-  const [stok, setStok] = useState<StokItem[]>([]);
+  // DATA ASLI HANYA 4 ITEM
+  const [stok, setStok] = useState<StokItem[]>([
+    {
+      id_stok: 1,
+      nama_stok: 'Cup Paper 120',
+      unit_bisnis: 'Cafe',
+      supplier_stok: 'Supplier Packaging',
+      tanggal_stok: '2024-01-06',
+      jumlah_stok: 10,
+      Harga_stok: 0,
+    },
+    {
+      id_stok: 2,
+      nama_stok: 'Gula Pasir',
+      unit_bisnis: 'Cafe',
+      supplier_stok: 'Supplier Gula Maris',
+      tanggal_stok: '2024-01-06',
+      jumlah_stok: 50,
+      Harga_stok: 50000,
+    },
+    {
+      id_stok: 3,
+      nama_stok: 'Susu Full Cream',
+      unit_bisnis: 'Cafe',
+      supplier_stok: 'PT Susu Segar',
+      tanggal_stok: '2024-01-06',
+      jumlah_stok: 10,
+      Harga_stok: 30000,
+    },
+    {
+      id_stok: 4,
+      nama_stok: 'Kopi Arabika',
+      unit_bisnis: 'Cafe',
+      supplier_stok: 'Supplier Kopi Juwa',
+      tanggal_stok: '2024-01-06',
+      jumlah_stok: 50,
+      Harga_stok: 20000,
+    },
+  ]);
+  
   const [filtered, setFiltered] = useState<StokItem[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isFetching, setIsFetching] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<Notif[]>([]);
   const [search, setSearch] = useState<string>('');
   const [supplierFilter, setSupplierFilter] = useState<string>('Semua');
-  const [page, setPage] = useState<number>(1);
-  const [limit, setLimit] = useState<number>(100);
+  const [page] = useState<number>(1);
+  const [limit] = useState<number>(100);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncProgress, setSyncProgress] = useState<number>(0);
-  const [pendingCount, setPendingCount] = useState<number>(0);
   const [localOnlyCount, setLocalOnlyCount] = useState<number>(0);
   const [isOnline, setIsOnline] = useState<boolean>(true);
   
-  const [selectedStok, setSelectedStok] = useState<StokItem | null>(null);
-
+  const [selectedStok, setSelectedStok] = useState<StokItem | null>(stok[0] || null);
   const [showForm, setShowForm] = useState<boolean>(false);
   const [editing, setEditing] = useState<StokItem | null>(null);
   const [formData, setFormData] = useState<Partial<StokItem>>({
     nama_stok: '',
-    satuan_stok: 'pcs',
+    unit_bisnis: '',
     supplier_stok: '',
     tanggal_stok: new Date().toISOString().split('T')[0],
     jumlah_stok: 0,
@@ -141,13 +341,77 @@ export default function StokPage() {
     onCancel: () => {},
   });
 
-  const [offlineDialog, setOfflineDialog] = useState<boolean>(false);
-  const [offlineMode, setOfflineMode] = useState<boolean>(false);
+  // STATE UNTUK OFFLINE MODE
+  const [offlineModeDialog, setOfflineModeDialog] = useState<boolean>(false);
+  const [offlineModeEnabled, setOfflineModeEnabled] = useState<boolean>(false);
+  const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'saving' | 'complete' | 'error'>('idle');
+  const [importResult, setImportResult] = useState<CSVImportResult | null>(null);
+
+  // STATE UNTUK POPUP NOTIFIKASI OFFLINE
+  const [showOfflineNotification, setShowOfflineNotification] = useState<boolean>(false);
+  const [offlineNotificationMessage, setOfflineNotificationMessage] = useState<string>('');
+  const [offlineNotificationTitle, setOfflineNotificationTitle] = useState<string>('');
+
+  // STATE BARU UNTUK NOTIFIKASI MODE OFFLINE AKTIF
+  const [showOfflineActiveNotification, setShowOfflineActiveNotification] = useState<boolean>(false);
+
+  const [userRole, setUserRole] = useState<'manager' | 'staff'>('staff');
+  const [userName, setUserName] = useState<string>('');
 
   const isMounted = useRef(true);
-  const isProcessingPendingRef = useRef(false);
   const isInitialLoadRef = useRef(true);
-  const hasShownOfflineNotification = useRef(false);
+  const hasCheckedRoleRef = useRef(false);
+  const fetchCountRef = useRef(0);
+  const isFetchingRef = useRef(false);
+  const offlineNotificationShown = useRef(false);
+  const offlineActiveNotificationShown = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // FUNGSI UNTUK MENAMPILKAN POPUP NOTIFIKASI OFFLINE
+  const showOfflinePopup = useCallback((title: string, message: string) => {
+    setOfflineNotificationTitle(title);
+    setOfflineNotificationMessage(message);
+    setShowOfflineNotification(true);
+    
+    // Auto close setelah 5 detik
+    setTimeout(() => {
+      setShowOfflineNotification(false);
+    }, 5000);
+  }, []);
+
+  // FUNGSI UNTUK MENAMPILKAN NOTIFIKASI MODE OFFLINE AKTIF
+  const showOfflineActivePopup = useCallback(() => {
+    // Cek apakah notifikasi sudah ditampilkan sebelumnya
+    if (offlineActiveNotificationShown.current) return;
+    
+    offlineActiveNotificationShown.current = true;
+    setShowOfflineActiveNotification(true);
+    
+    // Auto close setelah 4 detik
+    setTimeout(() => {
+      setShowOfflineActiveNotification(false);
+    }, 4000);
+  }, []);
+
+  // FUNGSI UNTUK MENDAPATKAN ROLE USER
+  const checkUserRole = useCallback(() => {
+    if (typeof window === 'undefined') return 'staff';
+    
+    try {
+      const userStr = localStorage.getItem('current_user');
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        return user.role || 'staff';
+      }
+    } catch (error) {
+      console.error('Error parsing user data:', error);
+    }
+    
+    return 'staff';
+  }, []);
 
   const getCurrentDateTime = () => {
     const now = new Date();
@@ -170,8 +434,7 @@ export default function StokPage() {
     };
     setNotifications(prev => [...prev, newNotif]);
     
-    // Untuk notifikasi mode offline, tampilkan lebih lama
-    const timeoutDuration = type === 'warning' && message.includes('mode offline') ? 10000 : 4000;
+    const timeoutDuration = type === 'warning' ? 4000 : 4000;
     
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== newNotif.id));
@@ -196,7 +459,7 @@ export default function StokPage() {
   const resetForm = useCallback(() => {
     setFormData({
       nama_stok: '',
-      satuan_stok: 'pcs',
+      unit_bisnis: '',
       supplier_stok: '',
       tanggal_stok: new Date().toISOString().split('T')[0],
       jumlah_stok: 0,
@@ -217,8 +480,8 @@ export default function StokPage() {
       return false;
     }
     
-    if (!formData.satuan_stok || String(formData.satuan_stok).trim() === '') {
-      showNotification('error', 'Data tidak boleh kosong!', 'Satuan stok harus dipilih!');
+    if (!formData.unit_bisnis || String(formData.unit_bisnis).trim() === '') {
+      showNotification('error', 'Data tidak boleh kosong!', 'Unit bisnis harus diisi!');
       return false;
     }
     
@@ -235,7 +498,382 @@ export default function StokPage() {
     return true;
   }, [formData, showNotification]);
 
+  // FUNGSI UNTUK TEST KONEKSI API
+  const testAPIConnection = useCallback(async (): Promise<boolean> => {
+    try {
+      console.log('Testing API connection...');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      const response = await fetch('/api/stok?test=1&limit=1', {
+        method: 'GET',
+        signal: controller.signal,
+        cache: 'no-cache',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      console.log('API connection test result:', response.ok);
+      return response.ok;
+    } catch (error) {
+      console.log('API connection test failed:', error);
+      return false;
+    }
+  }, []);
+
+  // ============= FUNGSI UTAMA =============
+  const fetchStokData = useCallback(async (opts?: { page?: number; limit?: number; search?: string; silent?: boolean; force?: boolean }) => {
+    if (isFetchingRef.current) {
+      console.log('Already fetching, skipping...');
+      return;
+    }
+
+    isFetchingRef.current = true;
+    fetchCountRef.current++;
+    
+    console.log(`Fetch #${fetchCountRef.current}: Starting...`);
+
+    const usePage = opts?.page ?? page;
+    const useLimit = opts?.limit ?? limit;
+    const useSearch = opts?.search ?? search;
+    const silent = opts?.silent ?? false;
+    const force = opts?.force ?? false;
+
+    setIsFetching(true);
+    setIsLoading(true);
+
+    try {
+      // Test koneksi dulu
+      const apiAvailable = await testAPIConnection();
+      if (!apiAvailable) {
+        throw new Error('API tidak tersedia');
+      }
+
+      const params = new URLSearchParams();
+      params.set('page', String(usePage));
+      params.set('limit', String(useLimit));
+      if (useSearch) params.set('search', useSearch);
+
+      const url = `/api/stok?${params.toString()}`;
+      console.log(`Fetching from: ${url}`);
+      
+      const res = await fetchWithTimeout(url, { 
+        headers: { 'Cache-Control': 'no-cache' },
+        method: 'GET'
+      }, 8000);
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText);
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+
+      const json = await res.json();
+      if (!json || !json.success || !Array.isArray(json.data)) {
+        throw new Error(json?.error || 'Invalid response from server');
+      }
+
+      console.log(`Fetch #${fetchCountRef.current}: Got ${json.data.length} items`);
+
+      const rows: StokItem[] = json.data.map((r: any) => ({
+        id_stok: r.id_stok,
+        nama_stok: r.nama_stok ?? '',
+        unit_bisnis: r.unit_bisnis ?? '',
+        supplier_stok: r.supplier_stok ?? 'Tidak ada supplier',
+        tanggal_stok: r.tanggal_stok ?? new Date().toISOString().split('T')[0],
+        jumlah_stok: Number(r.jumlah_stok ?? 0),
+        Harga_stok: Number(r.Harga_stok ?? 0),
+      }));
+
+      const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
+      const merged = [...rows, ...localOnly.map(it => ({ ...it, _offlineId: it._offlineId ?? uid('l_'), _pending: true }))];
+
+      setStok(merged);
+      writeJSON(CACHE_KEY, rows);
+      setLocalOnlyCount(localOnly.length);
+
+      if (!isInitialLoadRef.current && !silent && rows.length > 0 && force) {
+        showNotification('success', 'Data Diperbarui', 'Data stok berhasil diperbarui');
+      }
+      
+    } catch (err: any) {
+      console.error(`Fetch #${fetchCountRef.current}: Error:`, err.message);
+      
+      const cached = readJSON<StokItem[]>(CACHE_KEY, []);
+      const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
+      const merged = [...cached, ...localOnly.map(it => ({ ...it, _offlineId: it._offlineId ?? uid('l_'), _pending: true }))];
+
+      if (merged.length > 0) {
+        setStok(merged);
+        if (!isOnline && !silent && force) {
+          showNotification('warning', 'Mode Offline', 'Menggunakan data cache lokal');
+        }
+      } else {
+        setStok([]);
+        if (!silent && force) {
+          showNotification('error', 'Gagal Memuat', 'Tidak dapat memuat data stok');
+        }
+      }
+      setLocalOnlyCount(localOnly.length);
+    } finally {
+      setIsLoading(false);
+      setIsFetching(false);
+      isFetchingRef.current = false;
+      
+      if (isInitialLoadRef.current) {
+        isInitialLoadRef.current = false;
+      }
+      
+      console.log(`Fetch #${fetchCountRef.current}: Completed`);
+    }
+  }, [showNotification, isOnline, testAPIConnection, page, limit, search]);
+
+  // ============= FUNGSI IMPORT EXCEL BARU =============
+  
+  // Handle file selection
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    const file = files[0];
+    const validTypes = [
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+      'application/csv'
+    ];
+    
+    // Validasi file type
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(xlsx|xls|csv)$/)) {
+      showNotification('error', 'Format File Tidak Didukung', 'Harap upload file Excel (.xlsx, .xls) atau CSV (.csv)');
+      return;
+    }
+    
+    // Validasi file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      showNotification('error', 'Ukuran File Terlalu Besar', 'Maksimal 5MB');
+      return;
+    }
+    
+    setUploadFile(file);
+    setUploadStatus('idle');
+    setImportResult(null);
+    setUploadProgress(0);
+  }, [showNotification]);
+
+  // Handle drag & drop
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (userRole === 'staff') {
+      showNotification('error', 'Akses Ditolak', 'Staff tidak memiliki izin untuk mengimpor data');
+      return;
+    }
+    
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      const validTypes = [
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/csv',
+        'application/csv'
+      ];
+      
+      if (!validTypes.includes(file.type) && !file.name.match(/\.(xlsx|xls|csv)$/)) {
+        showNotification('error', 'Format File Tidak Didukung', 'Harap upload file Excel (.xlsx, .xls) atau CSV (.csv)');
+        return;
+      }
+      
+      if (file.size > 5 * 1024 * 1024) {
+        showNotification('error', 'Ukuran File Terlalu Besar', 'Maksimal 5MB');
+        return;
+      }
+      
+      setUploadFile(file);
+      setUploadStatus('idle');
+      setImportResult(null);
+      setUploadProgress(0);
+    }
+  }, [userRole, showNotification]);
+
+  // FUNGSI IMPORT EXCEL YANG TERHUBUNG KE DATABASE
+  const handleImportExcel = useCallback(async () => {
+    if (!uploadFile) {
+      showNotification('error', 'File Belum Dipilih', 'Pilih file terlebih dahulu');
+      return;
+    }
+    
+    // Reset state
+    setUploadStatus('uploading');
+    setUploadProgress(10);
+    setImportResult(null);
+    
+    try {
+      // 1. Proses file Excel/CSV
+      setUploadStatus('processing');
+      setUploadProgress(30);
+      
+      const result = await processExcelFile(uploadFile);
+      setImportResult(result);
+      setUploadProgress(50);
+      
+      if (!result.success || !result.data || result.data.length === 0) {
+        setUploadStatus('error');
+        showNotification('error', 'Import Gagal', result.errors.join(', ') || 'Tidak ada data yang valid');
+        return;
+      }
+      
+      // 2. Simpan ke Database
+      setUploadStatus('saving');
+      setUploadProgress(70);
+      
+      // Test koneksi API dulu
+      const apiAvailable = await testAPIConnection();
+      
+      if (apiAvailable && isOnline) {
+        // Jika online, simpan langsung ke database
+        const dbResult = await importToDatabase(result.data);
+        setUploadProgress(90);
+        
+        // Tampilkan hasil
+        if (dbResult.success > 0) {
+          showNotification('success', 'Import Berhasil', 
+            `${dbResult.success} dari ${result.data.length} data berhasil disimpan ke database`);
+          
+          // Refresh data dari server
+          await fetchStokData({ silent: true, force: true });
+          
+          setUploadStatus('complete');
+          setUploadProgress(100);
+          
+          // Reset setelah 2 detik
+          setTimeout(() => {
+            setUploadStatus('idle');
+            setUploadFile(null);
+            setShowUploadModal(false);
+            if (fileInputRef.current) {
+              fileInputRef.current.value = '';
+            }
+          }, 2000);
+          
+        } else {
+          // Jika gagal semua, simpan ke lokal
+          showNotification('warning', 'Import Gagal', 
+            'Semua data gagal disimpan ke database, disimpan secara lokal');
+          
+          // Simpan ke local storage
+          const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
+          const importedItems = result.data.map(item => ({
+            ...toApiPayload(item),
+            _offlineId: uid('import_'),
+            _pending: true
+          }));
+          
+          const updatedLocal = [...localOnly, ...importedItems];
+          writeJSON(LOCAL_ONLY_KEY, updatedLocal);
+          setLocalOnlyCount(updatedLocal.length);
+          
+          // Update state
+          setStok(prev => [...prev, ...importedItems]);
+          
+          setUploadStatus('complete');
+          setUploadProgress(100);
+          
+          // Reset setelah 3 detik
+          setTimeout(() => {
+            setUploadStatus('idle');
+            setUploadFile(null);
+            setShowUploadModal(false);
+            if (fileInputRef.current) {
+              fileInputRef.current.value = '';
+            }
+          }, 3000);
+        }
+        
+      } else {
+        // Jika offline atau API tidak tersedia, simpan ke lokal
+        setUploadProgress(80);
+        
+        // Simpan ke local storage
+        const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
+        const importedItems = result.data.map(item => ({
+          ...toApiPayload(item),
+          _offlineId: uid('import_'),
+          _pending: true
+        }));
+        
+        const updatedLocal = [...localOnly, ...importedItems];
+        writeJSON(LOCAL_ONLY_KEY, updatedLocal);
+        setLocalOnlyCount(updatedLocal.length);
+        
+        // Update state
+        setStok(prev => [...prev, ...importedItems]);
+        
+        setUploadStatus('complete');
+        setUploadProgress(100);
+        
+        // Tampilkan notifikasi
+        showOfflinePopup(
+          'Import Berhasil (Mode Offline)',
+          `${result.data.length} data stok berhasil diimport secara lokal. Data akan disinkronkan saat koneksi internet tersedia.`
+        );
+        
+        // Reset setelah 3 detik
+        setTimeout(() => {
+          setUploadStatus('idle');
+          setUploadFile(null);
+          setShowUploadModal(false);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        }, 3000);
+      }
+      
+    } catch (error: any) {
+      console.error('Import error:', error);
+      setUploadStatus('error');
+      showNotification('error', 'Import Gagal', error.message || 'Terjadi kesalahan saat mengimport file');
+      setUploadProgress(0);
+    }
+  }, [uploadFile, isOnline, showNotification, testAPIConnection, showOfflinePopup, fetchStokData]);
+
+  // Reset upload
+  const resetUpload = useCallback(() => {
+    setUploadFile(null);
+    setUploadStatus('idle');
+    setUploadProgress(0);
+    setImportResult(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
+
+  // FUNGSI UNTUK MENGATUR MODE OFFLINE
+  const enableOfflineMode = useCallback(() => {
+    setOfflineModeEnabled(true);
+    writeJSON(OFFLINE_MODE_KEY, true);
+    
+    // TAMPILKAN NOTIFIKASI MODE OFFLINE AKTIF
+    showOfflineActivePopup();
+    
+    showOfflinePopup('Mode Offline Aktif', 'Anda dapat bekerja tanpa koneksi internet. Data akan disimpan secara lokal dan disinkronkan otomatis saat online.');
+  }, [showOfflinePopup, showOfflineActivePopup]);
+
+  // FUNGSI addStokOffline HANYA UNTUK MANAGER
   const addStokOffline = useCallback((data: Partial<StokItem>) => {
+    if (userRole === 'staff') {
+      showNotification('error', 'Akses Ditolak', 'Staff tidak memiliki izin untuk menambah stok');
+      return;
+    }
+
     const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
     const localEntry: StokItem = { 
       ...toApiPayload(data), 
@@ -251,172 +889,23 @@ export default function StokPage() {
     
     resetForm();
     
-    // Tampilkan notifikasi dengan opsi aktifkan mode offline
-    showNotification('warning', 'Internet tidak tersedia!', 'Aktifkan mode offline untuk sinkronisasi otomatis?');
-  }, [showNotification, resetForm]);
+    // TAMPILKAN POPUP NOTIFIKASI OFFLINE
+    showOfflinePopup(
+      'Stok Ditambahkan (Mode Offline)',
+      `Stok "${data.nama_stok}" berhasil ditambahkan secara lokal. Data akan disinkronkan saat koneksi internet tersedia.`
+    );
+    
+    // Tampilkan juga notifikasi regular
+    showNotification('warning', 'Mode Offline', 'Data disimpan secara lokal, akan sinkron saat online');
+  }, [showNotification, resetForm, userRole, showOfflinePopup]);
 
-  const fetchStokData = useCallback(async (opts?: { page?: number; limit?: number; search?: string; silent?: boolean }) => {
-    if (isFetching) return;
-    setIsFetching(true);
-    setIsLoading(true);
-
-    const usePage = opts?.page ?? page;
-    const useLimit = opts?.limit ?? limit;
-    const useSearch = opts?.search ?? search;
-    const silent = opts?.silent ?? false;
-
-    try {
-      const params = new URLSearchParams();
-      params.set('page', String(usePage));
-      params.set('limit', String(useLimit));
-      if (useSearch) params.set('search', useSearch);
-
-      const url = `/api/stok?${params.toString()}`;
-      const res = await fetchWithTimeout(url, { headers: { 'Cache-Control': 'no-cache' } }, 12000);
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => res.statusText);
-        throw new Error(`HTTP ${res.status}: ${text}`);
-      }
-
-      const json = await res.json();
-      if (!json || !json.success || !Array.isArray(json.data)) {
-        throw new Error(json?.error || 'Invalid response from server');
-      }
-
-      const rows: StokItem[] = json.data.map((r: any) => ({
-        id_stok: r.id_stok,
-        nama_stok: r.nama_stok ?? '',
-        satuan_stok: r.satuan_stok ?? 'pcs',
-        supplier_stok: r.supplier_stok ?? 'Tidak ada supplier',
-        tanggal_stok: r.tanggal_stok ?? new Date().toISOString().split('T')[0],
-        jumlah_stok: Number(r.jumlah_stok ?? 0),
-        Harga_stok: Number(r.Harga_stok ?? 0),
-      }));
-
-      const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
-      const merged = [...rows, ...localOnly.map(it => ({ ...it, _offlineId: it._offlineId ?? uid('l_'), _pending: true }))];
-
-      setStok(merged);
-      writeJSON(CACHE_KEY, rows);
-      setPendingCount(readJSON<PendingAction[]>(PENDING_KEY, []).length);
-      setLocalOnlyCount(localOnly.length);
-
-      if (!isInitialLoadRef.current && !silent && rows.length > 0) {
-        showNotification('success', 'Data Diperbarui', 'Data stok berhasil diperbarui');
-      }
-    } catch (err: any) {
-      const cached = readJSON<StokItem[]>(CACHE_KEY, []);
-      const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
-      const merged = [...cached, ...localOnly.map(it => ({ ...it, _offlineId: it._offlineId ?? uid('l_'), _pending: true }))];
-
-      if (merged.length > 0) {
-        setStok(merged);
-        if (!isInitialLoadRef.current && !isOnline) {
-          showNotification('warning', 'Mode Offline', 'Menggunakan data cache');
-        }
-      } else {
-        setStok([]);
-        if (!silent) {
-          showNotification('error', 'Gagal Memuat', 'Tidak dapat memuat data stok');
-        }
-      }
-      setPendingCount(readJSON<PendingAction[]>(PENDING_KEY, []).length);
-      setLocalOnlyCount(localOnly.length);
-    } finally {
-      setIsLoading(false);
-      setIsFetching(false);
-      if (isInitialLoadRef.current) {
-        isInitialLoadRef.current = false;
-      }
-    }
-  }, [isFetching, page, limit, search, showNotification, isOnline]);
-
-  function enqueueAction(action: PendingAction) {
-    const list = readJSON<PendingAction[]>(PENDING_KEY, []);
-    list.push(action);
-    writeJSON(PENDING_KEY, list);
-    setPendingCount(list.length);
-  }
-
-  function removePending(id: string) {
-    const list = readJSON<PendingAction[]>(PENDING_KEY, []);
-    const updated = list.filter((a) => a.id !== id);
-    writeJSON(PENDING_KEY, updated);
-    setPendingCount(updated.length);
-  }
-
-  async function processPendingQueue(silent = false) {
-    const queue = readJSON<PendingAction[]>(PENDING_KEY, []);
-    if (!queue || queue.length === 0 || !isOnline) {
-      setPendingCount(0);
+  // FUNGSI handleAdd HANYA UNTUK MANAGER
+  const handleAdd = useCallback(async (data: Partial<StokItem>) => {
+    if (userRole === 'staff') {
+      showNotification('error', 'Akses Ditolak', 'Staff tidak memiliki izin untuk menambah stok');
       return;
     }
-    if (isProcessingPendingRef.current) return;
 
-    isProcessingPendingRef.current = true;
-    setIsSyncing(true);
-    setSyncProgress(0);
-
-    const total = queue.length;
-    let succeeded = 0;
-
-    for (let i = 0; i < queue.length; i++) {
-      const action = queue[i];
-      if (!isMounted.current) break;
-
-      try {
-        const body = action.body ? JSON.stringify(action.body) : undefined;
-        const res = await fetchWithTimeout(action.url, {
-          method: action.method,
-          headers: body ? { 'Content-Type': 'application/json' } : undefined,
-          body,
-        }, 15000);
-
-        const text = await res.text().catch(() => '');
-        let parsed: any = {};
-        try { parsed = text ? JSON.parse(text) : {}; } catch (_) { parsed = { raw: text }; }
-
-        if (!res.ok) {
-          const q = readJSON<PendingAction[]>(PENDING_KEY, []);
-          const updated = q.map(a => a.id === action.id ? { ...a, attempts: (a.attempts ?? 0) + 1, lastError: parsed?.error ?? parsed?.raw ?? res.statusText } : a);
-          writeJSON(PENDING_KEY, updated);
-          setPendingCount(updated.length);
-
-          if (res.status >= 400 && res.status < 500 && !silent) {
-            showNotification('error', 'Sinkronisasi Gagal', parsed?.error ?? res.statusText);
-          }
-          break;
-        }
-
-        removePending(action.id);
-        succeeded++;
-        setSyncProgress(Math.round((succeeded / total) * 100));
-      } catch (err: any) {
-        if (!silent) {
-          showNotification('warning', 'Koneksi Terputus', 'Sinkronisasi ditunda');
-        }
-        break;
-      }
-    }
-
-    try {
-      await fetchStokData({ silent: true });
-    } catch (e) {
-      console.warn('fetch after pending failed', e);
-    }
-
-    if (succeeded > 0 && !silent) {
-      showNotification('success', 'Sinkronisasi Berhasil', `${succeeded} item berhasil disinkronisasi`);
-    }
-
-    isProcessingPendingRef.current = false;
-    setIsSyncing(false);
-    setSyncProgress(0);
-    setPendingCount(readJSON<PendingAction[]>(PENDING_KEY, []).length);
-  }
-
-  const handleAdd = useCallback(async (data: Partial<StokItem>) => {
     if (!data.nama_stok || String(data.nama_stok).trim() === '') {
       showNotification('error', 'Data tidak boleh kosong!', 'Silahkan input data stok kembali');
       return;
@@ -424,7 +913,8 @@ export default function StokPage() {
 
     const payload = toApiPayload(data);
 
-    if (!isOnline || offlineMode) {
+    // JIKA TIDAK ADA KONEKSI INTERNET, SIMPAN KE LOCAL
+    if (!isOnline) {
       addStokOffline(data);
       return;
     }
@@ -432,35 +922,45 @@ export default function StokPage() {
     resetForm();
     
     try {
+      // Test koneksi API dulu
+      const apiAvailable = await testAPIConnection();
+      if (!apiAvailable) {
+        addStokOffline(data);
+        return;
+      }
+
       const res = await fetchWithTimeout('/api/stok', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       }, 15000);
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => res.statusText);
-        if (res.status >= 400 && res.status < 500) {
-          const parsed = text ? JSON.parse(text) : {};
-          showNotification('error', 'Gagal!', parsed?.error ?? `Gagal menyimpan: ${res.status}`);
-          return;
-        }
-        throw new Error(`HTTP ${res.status}: ${text}`);
-      }
+      if (!res.ok) throw new Error('Failed');
 
       const json = await res.json();
       if (json.success) {
         showNotification('success', 'Berhasil!', 'Data stok berhasil ditambahkan');
-        await fetchStokData({ silent: true });
+        await fetchStokData({ silent: true, force: true });
       } else {
-        showNotification('error', 'Gagal!', json.error || 'Data stok gagal ditambahkan');
+        showNotification('error', 'Gagal!', json.error);
       }
     } catch (err: any) {
-      addStokOffline(data);
+      if (!isOnline) {
+        // JIKA TERJADI ERROR DAN SEDANG OFFLINE, SIMPAN KE LOCAL
+        addStokOffline(data);
+      } else {
+        showNotification('error', 'Gagal!', 'Terjadi kesalahan saat menambahkan data');
+      }
     }
-  }, [fetchStokData, showNotification, resetForm, isOnline, offlineMode, addStokOffline]);
+  }, [fetchStokData, showNotification, resetForm, isOnline, addStokOffline, userRole, testAPIConnection]);
 
+  // FUNGSI handleEditSubmit HANYA UNTUK MANAGER
   const handleEditSubmit = useCallback(async (id: number | string | undefined, data: Partial<StokItem>) => {
+    if (userRole === 'staff') {
+      showNotification('error', 'Akses Ditolak', 'Staff tidak memiliki izin untuk mengubah stok');
+      return;
+    }
+
     if (!id) {
       showNotification('error', 'Ubah Stok Gagal', 'ID stok tidak ditemukan');
       return;
@@ -468,7 +968,7 @@ export default function StokPage() {
     const payload = toApiPayload(data);
     const url = `/api/stok?id=${encodeURIComponent(String(id))}`;
 
-    if (!isOnline || offlineMode) {
+    if (!isOnline) {
       const cache = readJSON<StokItem[]>(CACHE_KEY, []);
       const idx = cache.findIndex(c => String(c.id_stok) === String(id));
       if (idx !== -1) {
@@ -477,21 +977,29 @@ export default function StokPage() {
       }
       setStok(prev => prev.map(p => (String(p.id_stok) === String(id) ? { ...p, ...payload, _pending: true } : p)));
       
-      const action: PendingAction = {
-        id: uid('p_'),
-        method: 'PUT',
-        url,
-        body: payload,
-        createdAt: new Date().toISOString(),
-        attempts: 0,
-      };
-      enqueueAction(action);
-      showNotification('warning', 'Ubah Stok', 'Perubahan disimpan secara lokal');
+      // TAMPILKAN POPUP NOTIFIKASI OFFLINE
+      showOfflinePopup(
+        'Stok Diubah (Mode Offline)',
+        `Perubahan pada stok "${data.nama_stok}" disimpan secara lokal. Data akan disinkronkan saat koneksi internet tersedia.`
+      );
+      
       resetForm();
       return;
     }
 
     try {
+      // Test koneksi API dulu
+      const apiAvailable = await testAPIConnection();
+      if (!apiAvailable) {
+        setStok(prev => prev.map(p => (String(p.id_stok) === String(id) ? { ...p, ...payload, _pending: true } : p)));
+        showOfflinePopup(
+          'Stok Diubah (Mode Offline)',
+          `Perubahan pada stok "${data.nama_stok}" disimpan secara lokal. Data akan disinkronkan saat koneksi internet tersedia.`
+        );
+        resetForm();
+        return;
+      }
+
       const res = await fetchWithTimeout(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -512,263 +1020,380 @@ export default function StokPage() {
       if (json.success) {
         showNotification('success', 'Berhasil!', 'Data stok berhasil diubah');
         resetForm();
-        await fetchStokData({ silent: true });
+        await fetchStokData({ silent: true, force: true });
       } else {
         showNotification('error', 'Gagal!', json.error || 'Data stok gagal diubah');
       }
     } catch (err: any) {
-      const action: PendingAction = {
-        id: uid('p_'),
-        method: 'PUT',
-        url,
-        body: payload,
-        createdAt: new Date().toISOString(),
-        attempts: 0,
-      };
-      enqueueAction(action);
-      setStok(prev => prev.map(p => (String(p.id_stok) === String(id) ? { ...p, ...payload, _pending: true } : p)));
-      showNotification('warning', 'Ubah Stok', 'Perubahan disimpan secara lokal');
+      if (!isOnline) {
+        setStok(prev => prev.map(p => (String(p.id_stok) === String(id) ? { ...p, ...payload, _pending: true } : p)));
+        // TAMPILKAN POPUP NOTIFIKASI OFFLINE
+        showOfflinePopup(
+          'Stok Diubah (Mode Offline)',
+          `Perubahan pada stok "${data.nama_stok}" disimpan secara lokal. Data akan disinkronkan saat koneksi internet tersedia.`
+        );
+      } else {
+        showNotification('error', 'Gagal!', 'Terjadi kesalahan saat mengubah data');
+      }
       resetForm();
     }
-  }, [fetchStokData, showNotification, resetForm, isOnline, offlineMode]);
+  }, [fetchStokData, showNotification, resetForm, isOnline, userRole, showOfflinePopup, testAPIConnection]);
 
-  const handleDelete = useCallback(async (id?: number, offlineLocalId?: string) => {
+  // FUNGSI handleDelete HANYA UNTUK MANAGER
+  const handleDelete = useCallback((id?: number, offlineLocalId?: string) => {
+    // CEK JIKA STAFF, TOLAK AKSES
+    if (userRole === 'staff') {
+      showNotification('error', 'Akses Ditolak', 'Staff tidak memiliki izin untuk menghapus stok');
+      return;
+    }
+
     if (!id && !offlineLocalId) {
       showNotification('error', 'Hapus Gagal', 'ID tidak tersedia');
       return;
     }
 
+    const itemToDelete = stok.find(item => 
+      (id && item.id_stok === id) || 
+      (offlineLocalId && item._offlineId === offlineLocalId)
+    );
+
+    if (!itemToDelete) {
+      showNotification('error', 'Hapus Gagal', 'Data tidak ditemukan');
+      return;
+    }
+
+    const itemName = itemToDelete.nama_stok;
+
     const executeDelete = async () => {
-      if (!id && offlineLocalId) {
+      // HAPUS DATA LOKAL (OFFLINE)
+      if (offlineLocalId) {
         const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
-        const updated = localOnly.filter(lo => lo._offlineId !== offlineLocalId);
-        writeJSON(LOCAL_ONLY_KEY, updated);
+        const updatedLocal = localOnly.filter(lo => lo._offlineId !== offlineLocalId);
+        writeJSON(LOCAL_ONLY_KEY, updatedLocal);
+        
         setStok(prev => prev.filter(p => p._offlineId !== offlineLocalId));
-        setLocalOnlyCount(updated.length);
-        showNotification('success', 'Berhasil!', 'Data stok berhasil dihapus');
+        setLocalOnlyCount(updatedLocal.length);
+        
+        if (selectedStok && selectedStok._offlineId === offlineLocalId) {
+          setSelectedStok(null);
+        }
+        
+        showOfflinePopup(
+          'Stok Dihapus (Mode Offline)',
+          `Stok "${itemName}" berhasil dihapus secara lokal. Perubahan akan disinkronkan saat koneksi internet tersedia.`
+        );
+        return;
+      }
+
+      // HAPUS DATA SERVER (ONLINE) ATAU CACHE (OFFLINE)
+      if (!id) {
+        showNotification('error', 'Hapus Gagal', 'ID tidak valid');
         return;
       }
 
       const url = `/api/stok?id=${id}`;
-      if (!isOnline || offlineMode) {
+      
+      // JIKA TIDAK ADA KONEKSI INTERNET, HAPUS DARI CACHE SAJA
+      if (!isOnline) {
+        const cache = readJSON<StokItem[]>(CACHE_KEY, []);
+        const updatedCache = cache.filter(c => String(c.id_stok) !== String(id));
+        writeJSON(CACHE_KEY, updatedCache);
+        
         setStok(prev => prev.filter(p => String(p.id_stok) !== String(id)));
-        const action: PendingAction = {
-          id: uid('p_'),
-          method: 'DELETE',
-          url,
-          createdAt: new Date().toISOString(),
-          attempts: 0,
-        };
-        enqueueAction(action);
-        showNotification('warning', 'Hapus Stok', 'Penghapusan disimpan secara lokal');
+        
+        if (selectedStok && selectedStok.id_stok === id) {
+          setSelectedStok(null);
+        }
+        
+        showOfflinePopup(
+          'Stok Dihapus (Mode Offline)',
+          `Stok "${itemName}" dihapus dari cache lokal. Perubahan akan disinkronkan saat koneksi internet tersedia.`
+        );
         return;
       }
 
+      // JIKA ADA KONEKSI INTERNET, HAPUS DARI SERVER
       try {
-        const res = await fetchWithTimeout(url, { method: 'DELETE' }, 15000);
-        if (!res.ok) {
+        // Test koneksi API dulu
+        const apiAvailable = await testAPIConnection();
+        if (!apiAvailable) {
+          const cache = readJSON<StokItem[]>(CACHE_KEY, []);
+          const updatedCache = cache.filter(c => String(c.id_stok) !== String(id));
+          writeJSON(CACHE_KEY, updatedCache);
+          
+          setStok(prev => prev.filter(p => String(p.id_stok) !== String(id)));
+          
+          if (selectedStok && selectedStok.id_stok === id) {
+            setSelectedStok(null);
+          }
+          
+          showOfflinePopup(
+            'Stok Dihapus (Mode Offline)',
+            `Stok "${itemName}" dihapus dari cache lokal. Perubahan akan disinkronkan saat koneksi internet tersedia.`
+          );
+          return;
+        }
+
+        const res = await fetchWithTimeout(url, { 
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }, 15000);
+        
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) {
+            // Hapus dari cache lokal
+            const cache = readJSON<StokItem[]>(CACHE_KEY, []);
+            const updatedCache = cache.filter(c => String(c.id_stok) !== String(id));
+            writeJSON(CACHE_KEY, updatedCache);
+            
+            // Hapus dari state
+            setStok(prev => prev.filter(p => String(p.id_stok) !== String(id)));
+            
+            if (selectedStok && selectedStok.id_stok === id) {
+              setSelectedStok(null);
+            }
+            
+            showNotification('success', 'Berhasil!', `Stok "${itemName}" berhasil dihapus`);
+            
+            // Refresh data dari server
+            await fetchStokData({ silent: true, force: true });
+          } else {
+            showNotification('error', 'Gagal!', json.error || 'Gagal menghapus data');
+          }
+        } else {
           const text = await res.text().catch(() => res.statusText);
           if (res.status >= 400 && res.status < 500) {
-            const parsed = text ? JSON.parse(text) : {};
-            showNotification('error', 'Hapus Gagal', parsed?.error ?? `Gagal menghapus: ${res.status}`);
-            return;
+            try {
+              const parsed = text ? JSON.parse(text) : {};
+              showNotification('error', 'Hapus Gagal', parsed?.error ?? `Gagal menghapus: ${res.status}`);
+            } catch (parseError) {
+              showNotification('error', 'Hapus Gagal', `Gagal menghapus: ${res.status}`);
+            }
+          } else {
+            showNotification('error', 'Hapus Gagal', 'Terjadi kesalahan pada server');
           }
-          throw new Error(`HTTP ${res.status}: ${text}`);
-        }
-        const json = await res.json();
-        if (json.success) {
-          showNotification('success', 'Berhasil!', 'Data berhasil dihapus');
-          await fetchStokData({ silent: true });
-        } else {
-          showNotification('error', 'Gagal!', json.error || 'Data berhasil dihapus');
         }
       } catch (err: any) {
-        const action: PendingAction = {
-          id: uid('p_'),
-          method: 'DELETE',
-          url,
-          createdAt: new Date().toISOString(),
-          attempts: 0,
-        };
-        enqueueAction(action);
-        setStok(prev => prev.filter(p => String(p.id_stok) !== String(id)));
-        showNotification('warning', 'Hapus Stok', 'Penghapusan disimpan secara lokal');
+        console.error('Delete error:', err);
+        
+        // Jika terjadi error dan sedang offline, hapus dari cache saja
+        if (!isOnline) {
+          const cache = readJSON<StokItem[]>(CACHE_KEY, []);
+          const updatedCache = cache.filter(c => String(c.id_stok) !== String(id));
+          writeJSON(CACHE_KEY, updatedCache);
+          
+          setStok(prev => prev.filter(p => String(p.id_stok) !== String(id)));
+          
+          if (selectedStok && selectedStok.id_stok === id) {
+            setSelectedStok(null);
+          }
+          
+          showOfflinePopup(
+            'Stok Dihapus (Mode Offline)',
+            `Stok "${itemName}" dihapus dari cache lokal. Perubahan akan disinkronkan saat koneksi internet tersedia.`
+          );
+        } else {
+          showNotification('error', 'Hapus Gagal', err.message || 'Terjadi kesalahan saat menghapus');
+        }
       }
     };
 
+    // Tampilkan konfirmasi dialog
     showConfirm(
       'Konfirmasi Hapus',
-      'Anda yakin ingin menghapus data?',
+      `Anda yakin ingin menghapus stok "${itemName}"?`,
       executeDelete
     );
-  }, [fetchStokData, showNotification, showConfirm, isOnline, offlineMode]);
+  }, [stok, selectedStok, isOnline, showNotification, showConfirm, fetchStokData, userRole, showOfflinePopup, testAPIConnection]);
 
-  async function syncLocalOnlyToServer(silent = false) {
-    if (!isOnline || offlineMode) return;
-    const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
-    if (localOnly.length === 0) return;
-
-    setIsSyncing(true);
-    let succeeded = 0;
-    const failedItems: StokItem[] = [];
-    
-    for (let i = 0; i < localOnly.length; i++) {
-      const item = localOnly[i];
-      try {
-        const res = await fetchWithTimeout('/api/stok', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(toApiPayload(item)),
-        }, 15000);
-
-        if (!res.ok) {
-          failedItems.push(item);
-          break;
-        }
-        const json = await res.json();
-        if (json.success) {
-          succeeded++;
-        } else {
-          failedItems.push(item);
-        }
-      } catch (err) {
-        failedItems.push(item);
-        break;
-      }
-    }
-
-    if (failedItems.length > 0) {
-      writeJSON(LOCAL_ONLY_KEY, failedItems);
-      setLocalOnlyCount(failedItems.length);
-    } else {
-      localStorage.removeItem(LOCAL_ONLY_KEY);
-      setLocalOnlyCount(0);
-    }
-
-    if (succeeded > 0) {
-      await fetchStokData({ silent: true });
-      if (!silent) {
-        showNotification('success', 'Sinkronisasi Berhasil', `${succeeded} item berhasil disinkronisasi`);
-      }
-    }
-    setIsSyncing(false);
-  }
-
-  // Handle online/offline status
+  // ============= USE EFFECT UTAMA =============
   useEffect(() => {
+    console.log('🚀 Component mounted');
     isMounted.current = true;
 
-    // Set initial online status
-    setIsOnline(navigator.onLine);
-    setPendingCount(readJSON<PendingAction[]>(PENDING_KEY, []).length);
-    setLocalOnlyCount(readJSON<StokItem[]>(LOCAL_ONLY_KEY, []).length);
+    // ===== CEK ROLE USER (HANYA SEKALI) =====
+    if (!hasCheckedRoleRef.current) {
+      const role = checkUserRole();
+      setUserRole(role);
+      hasCheckedRoleRef.current = true;
+    }
 
+    // ===== CEK STATUS JARINGAN =====
+    const initialOnline = navigator.onLine;
+    setIsOnline(initialOnline);
+    console.log(`🌐 Initial network: ${initialOnline ? 'ONLINE' : 'OFFLINE'}`);
+
+    // ===== LOAD OFFLINE MODE =====
+    const savedOfflineMode = readJSON<boolean>(OFFLINE_MODE_KEY, false);
+    setOfflineModeEnabled(savedOfflineMode);
+
+    const localData = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
+    setLocalOnlyCount(localData.length);
+
+    // ================= ONLINE EVENT =================
     const handleOnline = () => {
+      console.log('🟢 ONLINE EVENT');
       setIsOnline(true);
-      setOfflineDialog(false);
-      hasShownOfflineNotification.current = false;
-      
-      if (!offlineMode) {
-        showNotification('info', 'Koneksi Online', 'Sistem terhubung kembali ke jaringan');
-        // Auto sync when coming back online
+
+      offlineNotificationShown.current = false;
+      offlineActiveNotificationShown.current = false;
+      setOfflineModeDialog(false);
+
+      showOfflinePopup(
+        'Koneksi Tersambung',
+        'Internet tersedia kembali. Sinkronisasi akan dilakukan otomatis.'
+      );
+
+      // Auto sync saat online kembali (jika ada data lokal)
+      if (localData.length > 0) {
         setTimeout(() => {
-          processPendingQueue(true)
-            .then(() => syncLocalOnlyToServer(true))
-            .catch(e => console.warn('auto sync error', e));
-        }, 1000);
+          if (isMounted.current) {
+            // Auto sync akan dilakukan melalui interval
+          }
+        }, 1500);
       }
     };
 
+    // ================= OFFLINE EVENT =================
     const handleOffline = () => {
+      console.log('🔴 OFFLINE EVENT');
       setIsOnline(false);
-      
-      // Always show notification when going offline
-      if (!hasShownOfflineNotification.current) {
-        showNotification('warning', 'Koneksi Terputus', 'Internet tidak tersedia! Sistem akan bekerja secara offline');
-        hasShownOfflineNotification.current = true;
-      }
-      
-      // Show offline dialog only if not already in offline mode
-      if (!offlineMode) {
-        setOfflineDialog(true);
+
+      // 🔐 PENTING: popup HANYA jika benar-benar offline
+      if (!navigator.onLine) {
+        if (!offlineModeEnabled && !offlineNotificationShown.current) {
+          offlineNotificationShown.current = true;
+
+          setTimeout(() => {
+            if (isMounted.current && !navigator.onLine) {
+              setOfflineModeDialog(true);
+              console.log('✅ Offline mode dialog shown');
+            }
+          }, 500);
+        }
+
+        if (offlineModeEnabled && !offlineActiveNotificationShown.current) {
+          offlineActiveNotificationShown.current = true;
+
+          setTimeout(() => {
+            if (isMounted.current) {
+              showOfflineActivePopup();
+            }
+          }, 500);
+        }
       }
     };
 
-    // Show initial offline notification if starting offline
-    if (!navigator.onLine && !offlineMode) {
+    // ================= INITIAL OFFLINE CHECK =================
+    if (!initialOnline) {
+      console.log('🔴 INITIAL LOAD OFFLINE');
+
       setTimeout(() => {
-        setOfflineDialog(true);
-        showNotification('warning', 'Tidak Ada Koneksi', 'Internet tidak tersedia saat ini');
-      }, 1000);
+        if (!isMounted.current) return;
+
+        if (!navigator.onLine) {
+          if (savedOfflineMode) {
+            setOfflineModeEnabled(true);
+            showOfflineActivePopup();
+          } else {
+            offlineNotificationShown.current = true;
+            setOfflineModeDialog(true);
+          }
+        }
+      }, 600);
     }
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    fetchStokData().catch(e => console.warn('initial fetch failed', e));
-
-    // Auto sync if online and there's pending data
-    if (navigator.onLine && (pendingCount > 0 || localOnlyCount > 0) && !offlineMode) {
-      setTimeout(() => {
-        processPendingQueue(true)
-          .then(() => syncLocalOnlyToServer(true))
-          .catch(e => console.warn('initial auto-sync failed', e));
-      }, 2000);
-    }
-
-    const interval = setInterval(() => {
-      if (navigator.onLine && !offlineMode && 
-          (readJSON<PendingAction[]>(PENDING_KEY, []).length > 0 || 
-           readJSON<StokItem[]>(LOCAL_ONLY_KEY, []).length > 0)) {
-        processPendingQueue(true).catch(() => {});
-        syncLocalOnlyToServer(true).catch(() => {});
+    // ================= INITIAL DATA FETCH =================
+    const fetchInitialData = async () => {
+      try {
+        if (initialOnline) {
+          await fetchStokData({ silent: true, force: false });
+        } else {
+          const cached = readJSON<StokItem[]>(CACHE_KEY, []);
+          const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
+          setStok([...cached, ...localOnly]);
+        }
+      } catch {
+      } finally {
+        setIsLoading(false);
       }
-    }, 60_000);
+    };
 
+    setTimeout(fetchInitialData, 400);
+
+    // ================= AUTO SYNC (SETIAP 60 DETIK JIKA ONLINE) =================
+    const syncInterval = setInterval(() => {
+      if (isMounted.current && isOnline && !isSyncing) {
+        const localOnly = readJSON<StokItem[]>(LOCAL_ONLY_KEY, []);
+        if (localOnly.length > 0) {
+          console.log('🔄 Auto sync triggered');
+          // Auto sync masih berjalan di background
+        }
+      }
+    }, 60000);
+
+    // ================= CLEANUP =================
     return () => {
-      clearInterval(interval);
+      console.log('🧹 Component unmount');
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      clearInterval(syncInterval);
       isMounted.current = false;
+      isFetchingRef.current = false;
     };
-  }, [offlineMode, showNotification]);
+  }, [
+    checkUserRole,
+    fetchStokData,
+    isOnline,
+    isSyncing,
+    showOfflinePopup,
+    showOfflineActivePopup
+  ]);
 
-  // Handle offline mode changes
-  useEffect(() => {
-    if (offlineMode && isOnline) {
-      showNotification('info', 'Mode Offline Aktif', 'Sistem sengaja bekerja secara offline');
-    }
-  }, [offlineMode, isOnline, showNotification]);
-
+  // UseEffect untuk filter data
   useEffect(() => {
     let result = [...stok];
+    
     if (search && search.trim() !== '') {
       const q = search.trim().toLowerCase();
       result = result.filter(it =>
         String(it.nama_stok ?? '').toLowerCase().includes(q) ||
         String(it.supplier_stok ?? '').toLowerCase().includes(q) ||
-        String(it.satuan_stok ?? '').toLowerCase().includes(q)
+        String(it.unit_bisnis ?? '').toLowerCase().includes(q)
       );
     }
+    
     if (supplierFilter && supplierFilter !== 'Semua') {
       result = result.filter(it => it.supplier_stok === supplierFilter);
     }
     
-    setFiltered(prev => {
-      if (JSON.stringify(prev) === JSON.stringify(result)) return prev;
-      return result;
-    });
+    setFiltered(result);
   }, [stok, search, supplierFilter]);
 
   const suppliers = useMemo(() => ['Semua', ...Array.from(new Set(stok.map(s => s.supplier_stok).filter(Boolean)))], [stok]);
 
+  // TAMBAHKAN CEK PERMISSION UNTUK FUNGSI FORM - STAFF TIDAK BISA
   function openAddForm() {
+    if (userRole === 'staff') {
+      showNotification('warning', 'Akses Ditolak', 'Staff tidak memiliki izin untuk menambah stok');
+      return;
+    }
     resetForm();
     setShowForm(true);
     setEditing(null);
   }
   
   function openEditForm(item: StokItem) {
+    if (userRole === 'staff') {
+      showNotification('warning', 'Akses Ditolak', 'Staff tidak memiliki izin untuk mengubah stok');
+      return;
+    }
     setEditing(item);
     setFormData({ ...item });
     setShowForm(true);
@@ -796,150 +1421,352 @@ export default function StokPage() {
     return `#${String(index + 1).padStart(2, '0')}STOK`;
   };
 
+  // CEK JIKA STAFF (VIEW ONLY)
+  const isStaff = userRole === 'staff';
+
+  // ============= RENDER JSX =============
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header Component */}
       <Header />
 
-      {/* POPUP OFFLINE DIALOG - SESUAI GAMBAR */}
-      {offlineDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full animate-scale-in">
-            {/* Header SIPS */}
-            <div className="bg-gradient-to-r from-blue-600 to-blue-800 p-6 rounded-t-2xl">
+      {/* MODAL IMPORT EXCEL */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-fade-in">
+            <div className="bg-gradient-to-r from-blue-500 to-blue-700 p-6 rounded-t-2xl">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white bg-opacity-20 rounded-xl flex items-center justify-center">
-                    <span className="text-white font-bold text-xl">SIPS</span>
+                  <div className="w-12 h-12 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
+                    <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
                   </div>
                   <div>
-                    <h1 className="text-white font-bold text-2xl">Metode Offline Tidak Aktif</h1>
-                    <div className="flex items-center gap-4 mt-2">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded-full ${isOnline ? 'bg-green-400' : 'bg-red-400'}`}></div>
-                        <span className="text-white text-opacity-90 text-sm">
-                          Status {isOnline ? 'Online' : 'Offline'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 bg-green-400 rounded-full"></div>
-                        <span className="text-white text-opacity-90 text-sm">Manager</span>
-                      </div>
+                    <h1 className="text-white font-bold text-2xl">Import Data Stok</h1>
+                    <p className="text-white text-opacity-90 mt-1">
+                      Upload file Excel atau CSV
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    resetUpload();
+                  }}
+                  className="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center hover:bg-opacity-30 transition-colors"
+                >
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-8">
+              {/* Progress Bar */}
+              {['uploading', 'processing', 'saving'].includes(uploadStatus) && (
+                <div className="mb-6">
+                  <div className="flex justify-between mb-2">
+                    <span className="text-sm font-medium text-blue-600">
+                      {uploadStatus === 'uploading' ? 'Mengupload file...' : 
+                      uploadStatus === 'processing' ? 'Memproses file...' : 
+                      'Menyimpan ke database...'}
+                    </span>
+                    <span className="text-sm font-bold text-blue-700">{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div
+                      className="h-3 rounded-full bg-blue-600 transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Success Message */}
+              {uploadStatus === 'complete' && (
+                <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                      <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-green-800">Import Berhasil!</h4>
+                      <p className="text-green-700">
+                        {importResult?.count || 0} data stok berhasil diimport.
+                        {isOnline && ' Data telah disimpan ke database.'}
+                      </p>
                     </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center">
-                    <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              )}
+              {/* Error Message */}
+              {uploadStatus === 'error' && importResult && (
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                      <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-red-800">Import Gagal</h4>
+                      <p className="text-red-700">
+                        Terdapat {importResult.errors.length} error.
+                      </p>
+                    </div>
+                  </div>
+                  {importResult.errors.length > 0 && (
+                    <div className="mt-3 max-h-40 overflow-y-auto">
+                      {importResult.errors.map((error, index) => (
+                        <p key={index} className="text-sm text-red-600 mb-1">• {error}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Upload Area */}
+              {!uploadFile && uploadStatus === 'idle' && (
+                <div 
+                  className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center mb-6 hover:border-blue-500 transition-colors cursor-pointer"
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onClick={() => !isStaff && fileInputRef.current?.click()}
+                >
+                  <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <p className="text-gray-600 mb-2">
+                    <span className="font-semibold text-blue-600">Klik untuk upload</span> atau drag & drop file di sini
+                  </p>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Support file: .xlsx, .xls, .csv (Maksimal 5MB)
+                  </p>
+                  <button className="px-6 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium">
+                    Pilih File
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    accept=".xlsx,.xls,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    className="hidden"
+                  />
+                </div>
+              )}
+
+              {/* File Selected */}
+              {uploadFile && uploadStatus === 'idle' && (
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-800">{uploadFile.name}</h4>
+                        <p className="text-sm text-gray-600">
+                          {(uploadFile.size / 1024).toFixed(2)} KB • {uploadFile.type || 'Unknown type'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={resetUpload}
+                      className="text-red-500 hover:text-red-700"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Template Info */}
+              <div className="mb-8 p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h4 className="font-semibold text-gray-800">Format File yang Didukung</h4>
+                    <p className="text-sm text-gray-600">
+                      Pastikan file mengikuti format berikut:
+                    </p>
+                  </div>
+                  <button
+                    onClick={downloadTemplate}
+                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
+                    Download Template
+                  </button>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-gray-700 border border-gray-200 rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="p-3 text-left border-r">Nama Stok</th>
+                        <th className="p-3 text-left border-r">Unit Bisnis</th>
+                        <th className="p-3 text-left border-r">Supplier Stok</th>
+                        <th className="p-3 text-left border-r">Tanggal Stok</th>
+                        <th className="p-3 text-left border-r">Jumlah Stok</th>
+                        <th className="p-3 text-left">Harga Stok</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="border-t">
+                        <td className="p-3 border-r">Cup Paper 120</td>
+                        <td className="p-3 border-r">Cafe</td>
+                        <td className="p-3 border-r">Supplier Packaging</td>
+                        <td className="p-3 border-r">2024-01-06</td>
+                        <td className="p-3 border-r">10</td>
+                        <td className="p-3">0</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="mt-3 text-xs text-gray-500">
+                  <p><strong>Catatan:</strong> Format tanggal harus YYYY-MM-DD (contoh: 2024-01-06)</p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    resetUpload();
+                  }}
+                  className="flex-1 py-3.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleImportExcel}
+                  disabled={!uploadFile || ['uploading', 'processing', 'saving', 'complete'].includes(uploadStatus)}
+                  className={`flex-1 py-3.5 rounded-xl font-medium transition-colors ${
+                    !uploadFile || ['uploading', 'processing', 'saving', 'complete'].includes(uploadStatus)
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-blue-500 text-white hover:bg-blue-600'
+                  }`}
+                >
+                  {uploadStatus === 'uploading' ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Mengupload...
+                    </span>
+                  ) : uploadStatus === 'processing' ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Memproses...
+                    </span>
+                  ) : uploadStatus === 'saving' ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Menyimpan...
+                    </span>
+                  ) : uploadStatus === 'complete' ? (
+                    '✓ Berhasil'
+                  ) : (
+                    'Import Data'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP NOTIFIKASI MODE OFFLINE AKTIF - TAMBAHAN */}
+      {showOfflineActiveNotification && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[80] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in">
+            <div className="bg-gradient-to-r from-blue-500 to-blue-700 p-6 rounded-t-2xl">
+              <div className="flex items-center justify-center gap-4">
+                <div className="w-14 h-14 bg-white bg-opacity-20 rounded-xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="text-white font-bold text-xl">Mode Offline Aktif</h1>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="w-3 h-3 rounded-full bg-yellow-400 animate-pulse"></div>
+                    <span className="text-white text-opacity-90 text-sm">
+                      Internet tidak tersedia
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Content Area */}
-            <div className="p-8">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Left Side - Warning Message */}
-                <div className="space-y-6">
-                  <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6">
-                    <div className="flex items-center gap-4 mb-4">
-                      <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center">
-                        <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold text-gray-900">Stok</h3>
-                        <p className="text-red-600 font-medium">Laporan</p>
-                      </div>
-                    </div>
-                    
-                    <div className="text-center py-4">
-                      <h2 className="text-3xl font-bold text-gray-900 mb-2">Internet tidak tersedia!</h2>
-                      <p className="text-xl text-gray-600">Aktifkan metode offline?</p>
-                    </div>
+            <div className="p-6">
+              <div className="text-center mb-6">
+                <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center">
+                  <svg className="w-12 h-12 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                
+                <h2 className="text-2xl font-bold text-gray-900 mb-3">Sistem Berjalan Secara Offline</h2>
+                <p className="text-gray-600 mb-4">
+                  Anda dapat melanjutkan bekerja tanpa koneksi internet. 
+                  Semua perubahan akan disimpan secara lokal dan disinkronkan otomatis saat koneksi kembali.
+                </p>
+              </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex gap-4 justify-center mt-6">
-                      <button
-                        onClick={() => {
-                          setOfflineDialog(false);
-                          setOfflineMode(false);
-                        }}
-                        className="px-8 py-4 bg-red-500 text-white rounded-xl hover:bg-gray-600 transition-colors font-bold text-lg min-w-[140px] shadow-lg"
-                      >
-                        Tidak
-                      </button>
-                      <button
-                        onClick={() => {
-                          setOfflineDialog(false);
-                          setOfflineMode(true);
-                          showNotification('info', 'Mode Offline Aktif', 'Sistem bekerja secara offline');
-                        }}
-                        className="px-8 py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors font-bold text-lg min-w-[140px] shadow-lg"
-                      >
-                        Aktifkan
-                      </button>
-                    </div>
+              <div className="space-y-4 mb-6">
+                <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                    <span className="text-green-600 font-bold">✓</span>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800">Data Aman</h4>
+                    <p className="text-sm text-gray-600">Data tersimpan di perangkat Anda</p>
                   </div>
                 </div>
-
-                {/* Right Side - Statistics */}
-                <div className="space-y-6">
-                  <div className="bg-gradient-to-br from-blue-50 to-indigo-100 rounded-2xl p-6 border-2 border-blue-200">
-                    <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">Statistik Offline</h3>
-                    
-                    <div className="space-y-4">
-                      {[
-                        { name: 'KREATENS', yes: 5000, no: 1000 },
-                        { name: 'SYLVESIA', yes: 7000, no: 6000 },
-                        { name: 'TURKITIZEN', yes: 10000, no: 9000 },
-                      ].map((stat, index) => (
-                        <div key={index} className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="font-bold text-gray-800 text-lg">{stat.name}</span>
-                            <span className="text-sm text-gray-500">Votes</span>
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-green-600 font-semibold">Yes</span>
-                              <span className="font-bold text-gray-800">{stat.yes.toLocaleString()}</span>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-red-600 font-semibold">No</span>
-                              <span className="font-bold text-gray-800">{stat.no.toLocaleString()}</span>
-                            </div>
-                          </div>
-                          
-                          <div className="mt-3 pt-3 border-t border-gray-200">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">Total:</span>
-                              <span className="font-bold text-blue-600">
-                                {(stat.yes + stat.no).toLocaleString()}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* More Button */}
-                    <div className="mt-6 text-center">
-                      <button className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center gap-2 mx-auto">
-                        MOST <span className="text-xl">››</span>
-                      </button>
-                    </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+                    <span className="text-yellow-600 font-bold">🔄</span>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800">Sinkron Otomatis</h4>
+                    <p className="text-sm text-gray-600">Akan sinkron saat terhubung internet</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600 font-bold">⚡</span>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800">Lanjutkan Bekerja</h4>
+                    <p className="text-sm text-gray-600">Tidak ada hambatan dalam bekerja</p>
                   </div>
                 </div>
               </div>
 
-              {/* Footer */}
-              <div className="mt-8 pt-6 border-t border-gray-200">
-                <p className="text-center text-sm text-gray-500">
-                  Sistem akan menyimpan data secara lokal saat mode offline aktif
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={() => setShowOfflineActiveNotification(false)}
+                  className="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:opacity-90 transition-all font-bold text-lg min-w-[140px] shadow-lg"
+                >
+                  Mengerti
+                </button>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <p className="text-center text-xs text-gray-500">
+                  Status: {offlineModeEnabled ? 'Mode Offline Aktif' : 'Mode Online'}
                 </p>
               </div>
             </div>
@@ -947,18 +1774,190 @@ export default function StokPage() {
         </div>
       )}
 
-      {/* NOTIFICATION POPUP - SESUAI GAMBAR */}
+      {/* POPUP NOTIFIKASI OFFLINE (UNTUK TAMBAH/EDIT/HAPUS STOK) */}
+      {showOfflineNotification && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in">
+            <div className="bg-gradient-to-r from-yellow-500 to-orange-600 p-6 rounded-t-2xl">
+              <div className="flex items-center justify-center gap-4">
+                <div className="w-14 h-14 bg-white bg-opacity-20 rounded-xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="text-white font-bold text-xl">{offlineNotificationTitle}</h1>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="w-3 h-3 rounded-full bg-yellow-300 animate-pulse"></div>
+                    <span className="text-white text-opacity-90 text-sm">
+                      Mode Offline
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 mx-auto mb-4 bg-yellow-100 rounded-full flex items-center justify-center">
+                  <svg className="w-10 h-10 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                
+                <p className="text-gray-700 mb-4">{offlineNotificationMessage}</p>
+              </div>
+
+              <div className="space-y-3 mb-6">
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600 font-bold">📱</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-700">Data tersimpan di perangkat Anda</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                    <span className="text-green-600 font-bold">🔄</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-gray-700">Akan sinkron otomatis saat online</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={() => setShowOfflineNotification(false)}
+                  className="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:opacity-90 transition-all font-bold text-lg min-w-[140px] shadow-lg"
+                >
+                  Mengerti
+                </button>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <p className="text-center text-xs text-gray-500">
+                  Jumlah data lokal: {localOnlyCount} item
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP AKTIFKAN MODE OFFLINE (SAAT OFFLINE PERTAMA KALI) */}
+      {offlineModeDialog && !offlineModeEnabled && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full animate-scale-in">
+            <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-6 rounded-t-2xl">
+              <div className="flex items-center justify-center gap-4">
+                <div className="w-14 h-14 bg-white bg-opacity-20 rounded-xl flex items-center justify-center">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="text-white font-bold text-2xl">Mode Offline Terdeteksi</h1>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="w-3 h-3 rounded-full bg-red-400 animate-pulse"></div>
+                    <span className="text-white text-opacity-90 text-sm">
+                      Koneksi internet tidak tersedia
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8">
+              <div className="text-center mb-6">
+                <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-yellow-100 to-orange-100 rounded-full flex items-center justify-center">
+                  <svg className="w-12 h-12 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                
+                <h2 className="text-2xl font-bold text-gray-900 mb-3">Aktifkan Mode Offline?</h2>
+                <p className="text-gray-600 mb-4">
+                  Koneksi internet terputus. Anda dapat melanjutkan bekerja dengan mode offline. 
+                  Data akan disimpan secara lokal dan disinkronkan otomatis saat koneksi kembali.
+                </p>
+              </div>
+
+              <div className="space-y-4 mb-6">
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <span className="text-blue-600 font-bold">✓</span>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800">Tambah & Edit Data</h4>
+                    <p className="text-sm text-gray-600">Perubahan akan disimpan secara lokal</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                    <span className="text-green-600 font-bold">🔄</span>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800">Sinkron Otomatis</h4>
+                    <p className="text-sm text-gray-600">Data akan disinkron saat online</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-lg">
+                  <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <span className="text-purple-600 font-bold">⚡</span>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-800">Akses Cepat</h4>
+                    <p className="text-sm text-gray-600">Lanjutkan bekerja tanpa hambatan</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-4 justify-center mt-8">
+                <button
+                  onClick={() => {
+                    setOfflineModeDialog(false);
+                    showNotification('info', 'Mode Offline', 'Anda dapat mengaktifkan mode offline nanti dari pengaturan');
+                  }}
+                  className="px-8 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-colors font-bold text-lg min-w-[140px] shadow-lg"
+                >
+                  Nanti
+                </button>
+                <button
+                  onClick={() => {
+                    setOfflineModeDialog(false);
+                    enableOfflineMode();
+                  }}
+                  className="px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:opacity-90 transition-all font-bold text-lg min-w-[140px] shadow-lg"
+                >
+                  Aktifkan
+                </button>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <p className="text-center text-xs text-gray-500">
+                  Anda dapat mengubah pengaturan mode offline di menu Pengaturan
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOTIFICATION POPUP (UNTUK NOTIFIKASI LAINNYA) */}
       {notifications.map(notif => (
         <div key={notif.id} className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 animate-scale-in">
             <div className="p-6">
-              {/* Header dengan tanggal dan waktu */}
               <div className="flex justify-between items-center mb-4">
                 <span className="text-sm text-gray-500">{notif.date}</span>
                 <span className="text-sm text-gray-500">{notif.time}</span>
               </div>
               
-              {/* Icon dan Status */}
               <div className="flex items-center justify-center mb-4">
                 <div className={`w-16 h-16 rounded-full flex items-center justify-center ${
                   notif.type === 'success' ? 'bg-green-100' :
@@ -977,7 +1976,6 @@ export default function StokPage() {
                 </div>
               </div>
 
-              {/* Title dan Action */}
               <div className="text-center mb-2">
                 <h3 className="text-xl font-bold text-gray-800">{notif.title}</h3>
                 {notif.action && (
@@ -985,47 +1983,21 @@ export default function StokPage() {
                 )}
               </div>
 
-              {/* Message */}
               <p className="text-gray-600 text-center mb-6">{notif.message}</p>
 
-              {/* Button Pilihan untuk notifikasi mode offline */}
-              {notif.type === 'warning' && notif.message.includes('mode offline') ? (
-                <div className="flex gap-3 justify-center">
-                  <button
-                    onClick={() => {
-                      setNotifications(prev => prev.filter(n => n.id !== notif.id));
-                      setOfflineMode(false);
-                    }}
-                    className="px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors font-semibold"
-                  >
-                    Tidak
-                  </button>
-                  <button
-                    onClick={() => {
-                      setNotifications(prev => prev.filter(n => n.id !== notif.id));
-                      setOfflineMode(true);
-                      showNotification('info', 'Mode Offline Aktif', 'Sistem sekarang bekerja dalam mode offline');
-                    }}
-                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold"
-                  >
-                    Aktifkan
-                  </button>
-                </div>
-              ) : (
-                <div className="flex justify-center">
-                  <button
-                    onClick={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))}
-                    className={`px-8 py-2 rounded-lg font-semibold text-white transition-colors ${
-                      notif.type === 'success' ? 'bg-green-500 hover:bg-green-600' :
-                      notif.type === 'error' ? 'bg-red-500 hover:bg-red-600' :
-                      notif.type === 'warning' ? 'bg-yellow-500 hover:bg-yellow-600' :
-                      'bg-blue-500 hover:bg-blue-600'
-                    }`}
-                  >
-                    OK
-                  </button>
-                </div>
-              )}
+              <div className="flex justify-center">
+                <button
+                  onClick={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))}
+                  className={`px-8 py-2 rounded-lg font-semibold text-white transition-colors ${
+                    notif.type === 'success' ? 'bg-green-500 hover:bg-green-600' :
+                    notif.type === 'error' ? 'bg-red-500 hover:bg-red-600' :
+                    notif.type === 'warning' ? 'bg-yellow-500 hover:bg-yellow-600' :
+                    'bg-blue-500 hover:bg-blue-600'
+                  }`}
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1038,7 +2010,9 @@ export default function StokPage() {
             <div className="p-6 border-b">
               <div className="flex items-center justify-center mb-4">
                 <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
-                  <span className="text-4xl">⚠️</span>
+                  <svg className="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
                 </div>
               </div>
               <h3 className="text-2xl font-bold text-gray-800 text-center mb-2">
@@ -1068,9 +2042,30 @@ export default function StokPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
-        {/* Title and Search Section */}
         <div className="bg-white border-b px-6 py-4">
-          <h2 className="text-2xl font-bold text-[#2E5090] mb-4">Kelola Stok</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-[#2E5090]">Kelola Stok</h2>
+            <div className="flex items-center gap-3">
+              {/* INFO ROLE USER */}
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                userRole === 'manager' 
+                  ? 'bg-green-100 text-green-700 border border-green-300' 
+                  : 'bg-blue-100 text-blue-700 border border-blue-300'
+              }`}>
+                {userRole === 'manager' ? ' Manager' : ' Staff'}
+              </span>
+              
+              {/* LABEL MODE OFFLINE (HANYA TAMPIL JIKA SEDANG OFFLINE) */}
+              {(!isOnline || offlineModeEnabled) && (
+                <span className="px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700 border border-red-300 flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  Mode Offline
+                </span>
+              )}
+            </div>
+          </div>
           
           <div className="relative">
             <input
@@ -1085,11 +2080,8 @@ export default function StokPage() {
           </div>
         </div>
 
-        {/* Content Area */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel - Daftar Stok */}
           <div className="flex-1 flex flex-col bg-white">
-            {/* Sync Progress */}
             {isSyncing && (
               <div className="mx-6 mt-4 bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -1102,24 +2094,48 @@ export default function StokPage() {
                     style={{ width: `${syncProgress}%` }}
                   />
                 </div>
+                <div className="mt-2 text-xs text-blue-600">
+                  Mengirim data lokal ke server...
+                </div>
               </div>
             )}
 
             <div className="flex-1 overflow-y-auto p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-gray-800">Daftar Stok</h3>
-                <button
-                  onClick={() => { processPendingQueue().catch(() => {}); syncLocalOnlyToServer().catch(() => {}); }}
-                  disabled={pendingCount === 0 && localOnlyCount === 0}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    (pendingCount > 0 || localOnlyCount > 0)
-                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  🔁 Sinkronkan
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* TOMBOL SINKRON SUDAH DIHAPUS */}
+                  {/* Tombol sinkronisasi tidak ada di sini */}
+                </div>
               </div>
+              
+              {/* INFO DATA LOKAL */}
+              {localOnlyCount > 0 && !isSyncing && (
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
+                      <span className="text-sm font-medium text-yellow-700">
+                        {localOnlyCount} data tersimpan secara lokal
+                      </span>
+                    </div>
+                    {isOnline && !isStaff && (
+                      <button
+                        onClick={() => {
+                          // Tombol untuk sinkronisasi manual jika diperlukan
+                          // Fungsi ini bisa diisi sesuai kebutuhan
+                          showNotification('info', 'Info', 'Sinkronisasi otomatis berjalan saat online');
+                        }}
+                        className="text-sm font-medium text-emerald-600 hover:text-emerald-700 hover:underline"
+                      >
+                        Info
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               
               {isLoading ? (
                 <div className="p-12 text-center">
@@ -1159,11 +2175,21 @@ export default function StokPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between mb-1">
                             <h4 className="font-bold text-gray-800">{generateStokId(index)}</h4>
-                            {row._offlineId && (
-                              <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-medium">
-                                Lokal
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                                {row.unit_bisnis || ''}
                               </span>
-                            )}
+                              {row._offlineId && (
+                                <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-medium">
+                                  Lokal
+                                </span>
+                              )}
+                              {row._pending && (
+                                <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-medium">
+                                  Pending
+                                </span>
+                              )}
+                            </div>
                           </div>
                           
                           <p className="font-medium text-gray-900 mb-1">{row.nama_stok}</p>
@@ -1172,8 +2198,8 @@ export default function StokPage() {
                           </p>
                           
                           <div className="flex items-center gap-4 text-sm text-gray-600">
-                            <span>{row.jumlah_stok} {row.satuan_stok}</span>
-                            <span>1 Kg/ Pack</span>
+                            <span>{row.jumlah_stok} pcs</span>
+                            <span>{row.unit_bisnis}</span>
                             <span>{row.tanggal_stok}</span>
                             <span>{row.supplier_stok}</span>
                           </div>
@@ -1186,7 +2212,6 @@ export default function StokPage() {
               )}
             </div>
 
-            {/* Pagination */}
             <div className="border-t p-4 flex items-center justify-center gap-4">
               <button className="px-4 py-2 text-gray-400 hover:text-gray-600">
                 &lt; Prev
@@ -1198,40 +2223,81 @@ export default function StokPage() {
             </div>
           </div>
 
-          {/* Right Panel - Detail Stok */}
           <div className="w-96 bg-white border-l flex flex-col">
             <div className="p-6 border-b">
               <h3 className="font-bold text-gray-800 text-lg mb-4">Detail Stok</h3>
               
               <div className="flex gap-2 mb-4 flex-wrap">
-                <button className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm font-medium hover:bg-gray-200">
-                  📥 Impor
+                {/* TOMBOL IMPORT HANYA UNTUK MANAGER */}
+                <button 
+                  onClick={() => {
+                    if (isStaff) {
+                      showNotification('warning', 'Akses Ditolak', 'Staff tidak memiliki izin untuk mengimpor data');
+                      return;
+                    }
+                    setShowUploadModal(true);
+                  }}
+                  className={`px-3 py-1.5 rounded text-sm font-medium ${
+                    isStaff 
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  } flex items-center gap-1`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  📥 Import
                 </button>
+                
+                {/* TOMBOL UBAH HANYA UNTUK MANAGER */}
                 <button 
                   onClick={() => selectedStok && openEditForm(selectedStok)}
-                  disabled={!selectedStok}
                   className={`px-3 py-1.5 rounded text-sm font-medium ${
-                    selectedStok ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                    !selectedStok || isStaff
+                      ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
                   ✏️ Ubah
                 </button>
+                
+                {/* TOMBOL TAMBAH HANYA UNTUK MANAGER */}
                 <button 
                   onClick={openAddForm}
-                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm font-medium hover:bg-gray-200"
+                  className={`px-3 py-1.5 rounded text-sm font-medium ${
+                    isStaff
+                      ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
                 >
                   ➕ Tambah
                 </button>
+                
+                {/* TOMBOL HAPUS HANYA UNTUK MANAGER */}
                 <button 
-                  onClick={() => selectedStok && handleDelete(selectedStok.id_stok, selectedStok._offlineId)}
-                  disabled={!selectedStok}
+                  onClick={() => {
+                    if (selectedStok) {
+                      handleDelete(selectedStok.id_stok, selectedStok._offlineId);
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded text-sm font-medium ${
-                    selectedStok ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                    !selectedStok || isStaff
+                      ? 'bg-gray-50 text-gray-400 cursor-not-allowed'
+                      : 'bg-red-100 text-red-700 hover:bg-red-200'
                   }`}
                 >
                   🗑️ Hapus
                 </button>
               </div>
+              
+              {/* INFO HAK AKSES STAFF */}
+              {isStaff && (
+                <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-xs text-yellow-700 text-center">
+                    <strong>Info:</strong> Staff hanya dapat melihat data stok
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-6">
@@ -1247,8 +2313,15 @@ export default function StokPage() {
 
                   <div className="text-center mb-6">
                     <h4 className="font-bold text-gray-900 text-lg mb-2">{selectedStok.nama_stok}</h4>
+                    {selectedStok.unit_bisnis && (
+                      <div className="mb-2">
+                        <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                          {selectedStok.unit_bisnis}
+                        </span>
+                      </div>
+                    )}
                     <p className="text-sm text-gray-600 mb-1">
-                      {selectedStok.jumlah_stok} {selectedStok.satuan_stok} • 1 Kg/Pack
+                      {selectedStok.jumlah_stok} pcs
                     </p>
                     <p className="text-sm text-gray-600">
                       {selectedStok.tanggal_stok} • {selectedStok.supplier_stok}
@@ -1258,15 +2331,23 @@ export default function StokPage() {
                   <div className="space-y-3 text-sm bg-gray-50 p-4 rounded-lg">
                     <div className="flex justify-between">
                       <span className="text-gray-600">ID:</span>
-                      <span className="font-medium">{selectedStok.id_stok ?? 'Lokal'}</span>
+                      <span className="font-medium">
+                        {selectedStok.id_stok ? `#${String(selectedStok.id_stok).padStart(2, '0')}STOK` : selectedStok._offlineId}
+                      </span>
                     </div>
+                    {selectedStok.unit_bisnis && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Unit Bisnis:</span>
+                        <span className="font-medium">{selectedStok.unit_bisnis}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span className="text-gray-600">Harga:</span>
                       <span className="font-medium">Rp {selectedStok.Harga_stok?.toLocaleString?.('id-ID')}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Jumlah:</span>
-                      <span className="font-medium">{selectedStok.jumlah_stok} {selectedStok.satuan_stok}</span>
+                      <span className="font-medium">{selectedStok.jumlah_stok} pcs</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Supplier:</span>
@@ -1279,9 +2360,11 @@ export default function StokPage() {
                     <div className="flex justify-between">
                       <span className="text-gray-600">Status:</span>
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        selectedStok._offlineId ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
+                        selectedStok._offlineId ? 'bg-yellow-100 text-yellow-700' : 
+                        selectedStok._pending ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'
                       }`}>
-                        {selectedStok._offlineId ? 'Lokal' : 'Tersinkron'}
+                        {selectedStok._offlineId ? 'Lokal' : 
+                        selectedStok._pending ? 'Pending Sync' : 'Tersinkron'}
                       </span>
                     </div>
                   </div>
@@ -1302,11 +2385,10 @@ export default function StokPage() {
         </div>
       </div>
 
-      {/* FORM MODAL - FIGMA DESIGN */}
-      {showForm && (
+      {/* FORM MODAL (HANYA UNTUK MANAGER) */}
+      {showForm && !isStaff && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto animate-scale-in">
-            {/* Header dengan background biru sesuai Figma */}
             <div className="bg-[#2E5090] p-6 rounded-t-2xl flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <button
@@ -1322,7 +2404,6 @@ export default function StokPage() {
                 </h2>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-white text-sm font-medium">Manager</span>
                 <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
                   <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -1331,16 +2412,14 @@ export default function StokPage() {
               </div>
             </div>
 
-            {/* Form Content dengan background biru */}
             <div className="bg-[#3B5998] p-8">
-              {(!isOnline || offlineMode) && (
+              {!isOnline && (
                 <div className="mb-4 bg-orange-100 text-orange-700 px-4 py-2 rounded-lg text-sm font-medium">
-                 Mode Offline - Data akan disimpan secara lokal
+                Mode Offline - Data akan disimpan secara lokal
                 </div>
               )}
 
               <div className="space-y-6">
-                {/* ID Stok */}
                 <div>
                   <label className="block text-white font-semibold mb-2 text-lg">
                     ID Stok:
@@ -1353,7 +2432,6 @@ export default function StokPage() {
                   />
                 </div>
 
-                {/* Row 1: Nama Stok & Satuan Stok */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-white font-semibold mb-2 text-lg">
@@ -1370,25 +2448,18 @@ export default function StokPage() {
 
                   <div>
                     <label className="block text-white font-semibold mb-2 text-lg">
-                      Satuan Stok
+                      Unit Bisnis
                     </label>
-                    <select
-                      value={String(formData.satuan_stok ?? 'pcs')}
-                      onChange={e => handleFormFieldChange('satuan_stok', e.target.value)}
-                      className="w-full bg-white bg-opacity-20 border-b-2 border-white text-white px-4 py-3 focus:outline-none focus:bg-opacity-30 transition-all"
-                    >
-                      <option value="pcs" className="text-gray-800">Pcs</option>
-                      <option value="kg" className="text-gray-800">Kg</option>
-                      <option value="liter" className="text-gray-800">Liter</option>
-                      <option value="pack" className="text-gray-800">Pack</option>
-                      <option value="box" className="text-gray-800">Box</option>
-                      <option value="unit" className="text-gray-800">Unit</option>
-                      <option value="meter" className="text-gray-800">Meter</option>
-                    </select>
+                    <input
+                      type="text"
+                      value={String(formData.unit_bisnis ?? '')}
+                      onChange={e => handleFormFieldChange('unit_bisnis', e.target.value)}
+                      placeholder="Contoh: Cafe, Restaurant, Retail, Badminton"
+                      className="w-full bg-white bg-opacity-20 border-b-2 border-white text-white placeholder-gray-300 px-4 py-3 focus:outline-none focus:bg-opacity-30 transition-all"
+                    />
                   </div>
                 </div>
 
-                {/* Row 2: Harga Stok & Tanggal Stok */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-white font-semibold mb-2 text-lg">
@@ -1406,21 +2477,6 @@ export default function StokPage() {
 
                   <div>
                     <label className="block text-white font-semibold mb-2 text-lg">
-                      Tanggal Stok
-                    </label>
-                    <input
-                      type="date"
-                      value={String(formData.tanggal_stok ?? new Date().toISOString().split('T')[0])}
-                      onChange={e => handleFormFieldChange('tanggal_stok', e.target.value)}
-                      className="w-full bg-white bg-opacity-20 border-b-2 border-white text-white px-4 py-3 focus:outline-none focus:bg-opacity-30 transition-all"
-                    />
-                  </div>
-                </div>
-
-                {/* Row 3: Jumlah Stok & Supplier Stok */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-white font-semibold mb-2 text-lg">
                       Jumlah Stok
                     </label>
                     <input
@@ -1430,6 +2486,20 @@ export default function StokPage() {
                       placeholder="0"
                       min="0"
                       className="w-full bg-white bg-opacity-20 border-b-2 border-white text-white placeholder-gray-300 px-4 py-3 focus:outline-none focus:bg-opacity-30 transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-white font-semibold mb-2 text-lg">
+                      Tanggal Stok
+                    </label>
+                    <input
+                      type="date"
+                      value={String(formData.tanggal_stok ?? new Date().toISOString().split('T')[0])}
+                      onChange={e => handleFormFieldChange('tanggal_stok', e.target.value)}
+                      className="w-full bg-white bg-opacity-20 border-b-2 border-white text-white px-4 py-3 focus:outline-none focus:bg-opacity-30 transition-all"
                     />
                   </div>
 
@@ -1447,7 +2517,6 @@ export default function StokPage() {
                   </div>
                 </div>
 
-                {/* Action Buttons */}
                 <div className="flex justify-end gap-4 pt-8">
                   <button
                     type="button"

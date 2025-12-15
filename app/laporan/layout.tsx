@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 type User = {
-  role: 'manager' | 'staff';
+  role: 'manager' ;
   name?: string;
 };
 

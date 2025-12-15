@@ -1,8 +1,7 @@
-// app/layout.tsx
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import Sidebar from '@/components/layout/Sidebar';
+import SidebarClient from '@/components/layout/sidebarclient';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,7 +19,7 @@ export default function RootLayout({
     <html lang="id">
       <body className={inter.className}>
         <div className="flex min-h-screen">
-          <Sidebar/>
+          <SidebarClient />
           <main className="flex-1 bg-gray-50">
             {children}
           </main>

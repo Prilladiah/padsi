@@ -1,32 +1,44 @@
-// lib/db.ts - FIXED VERSION
-import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+import { Pool, PoolClient, QueryResult as PGQueryResult, QueryResultRow } from 'pg';
 
-// Konfigurasi koneksi PostgreSQL yang optimal
-const pool = new Pool({
+// Deklarasi interface untuk PoolConfig untuk menghindari error typescript
+interface PoolConfig {
+  connectionString?: string;
+  ssl?: any;
+  max?: number;
+  min?: number;
+  idleTimeoutMillis?: number;
+  connectionTimeoutMillis?: number;
+}
+
+// Konfigurasi koneksi PostgreSQL yang stabil
+const poolConfig: PoolConfig = {
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  
-  // Optimasi untuk environment serverless
-  max: 10, // Maximum connections
-  min: 2,  // Minimum connections
-  idleTimeoutMillis: 30000, // 30 seconds
-  connectionTimeoutMillis: 10000, // 10 seconds untuk connection timeout
-  
-  // Additional stability options
-  maxUses: 7500, // Maximum uses per connection
-});
+  max: 10,
+  min: 2,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
+};
+
+// Inisialisasi pool
+const pool = new Pool(poolConfig);
+
+// Type untuk query result
+export interface QueryResult<T extends QueryResultRow = any> {
+  rows: T[];
+  rowCount: number;
+  command: string;
+  oid: number;
+  fields: any[];
+}
 
 // Event handlers untuk monitoring
-pool.on('error', (err, client) => {
+pool.on('error', (err: Error) => {
   console.error('❌ Unexpected pool error:', err.message);
 });
 
-pool.on('connect', (client) => {
+pool.on('connect', () => {
   console.log('✅ New client connected to database');
-});
-
-pool.on('remove', (client) => {
-  console.log('🔄 Client removed from pool');
 });
 
 /**
@@ -37,60 +49,68 @@ export async function query<T extends QueryResultRow = any>(
   params: any[] = [], 
   retries = 3
 ): Promise<QueryResult<T>> {
-  let client: PoolClient | undefined;
+  let client: PoolClient | null = null;
   const start = Date.now();
   
   try {
     console.log(`🔵 Executing query: ${text.substring(0, 100)}...`);
     
-    // Acquire connection dengan timeout
-    const acquirePromise = pool.connect();
-    const timeoutPromise = new Promise<never>((_, reject) => 
-      setTimeout(() => reject(new Error('Connection acquire timeout')), 8000)
-    );
+    // Acquire connection
+    client = await pool.connect();
     
-    client = await Promise.race([acquirePromise, timeoutPromise]);
+    // Set statement timeout untuk query execution (jika supported)
+    try {
+      await client.query('SET statement_timeout = 15000');
+    } catch (timeoutErr) {
+      // Ignore jika tidak support
+    }
     
-    // Set statement timeout untuk query execution
-    await client.query('SET statement_timeout = 15000');
-    
-    // Execute query
+    // Execute query dengan tipe yang benar
     const res = await client.query<T>(text, params);
     const duration = Date.now() - start;
     
     console.log(`✅ Query executed in ${duration}ms, rows: ${res.rows.length}`);
     
-    return res;
+    return {
+      rows: res.rows,
+      rowCount: res.rowCount || 0,
+      command: res.command || '',
+      oid: res.oid || 0,
+      fields: res.fields || []
+    };
   } catch (err: any) {
     const duration = Date.now() - start;
     console.error(`❌ Query failed after ${duration}ms:`, {
       error: err.message || '',
-      code: err.code || '',
+      code: (err as any).code || '',
       query: text.substring(0, 100),
-      params: params.length > 0 ? '[...]' : []
+      params: params.length > 0 ? params : []
     });
 
-    // Retry logic untuk error yang bisa di-retry
+    // Retry logic
     const retryableErrors = [
       'ETIMEDOUT',
       'ECONNRESET',
       'ECONNREFUSED',
-      '57P01', // admin_shutdown
-      '57P03', // cannot_connect_now
-      '08006', // connection_failure
-      '08003', // connection_does_not_exist
+      '57P01',
+      '57P03',
+      '08006',
+      '08003',
     ];
 
+    const errCode = (err as any).code || '';
+    const errMessage = err.message || '';
+    
     const shouldRetry = retries > 0 && (
-      retryableErrors.includes(err.code) ||
-      err.message?.includes('timeout') ||
-      err.message?.includes('terminated') ||
-      err.message?.includes('connection') ||
-      err.message?.includes('acquire')
+      retryableErrors.includes(errCode) ||
+      errMessage.includes('timeout') ||
+      errMessage.includes('terminated') ||
+      errMessage.includes('connection') ||
+      errMessage.includes('acquire')
     );
 
     if (shouldRetry) {
-      const waitTime = 1000 * (4 - retries); // Exponential backoff: 1s, 2s, 3s
+      const waitTime = 1000 * (4 - retries);
       console.warn(`🔄 Retrying query (${retries} retries left)...`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
       return query<T>(text, params, retries - 1);
@@ -115,7 +135,7 @@ export async function checkDatabaseConnection(): Promise<boolean> {
   try {
     console.log('🔍 Checking database connection...');
     const result = await query('SELECT NOW() as current_time', [], 2);
-    console.log('✅ Database connection healthy:', result.rows[0].current_time);
+    console.log('✅ Database connection healthy:', result.rows[0]?.current_time);
     return true;
   } catch (error: any) {
     console.error('❌ Database connection failed:', error.message);
@@ -127,10 +147,11 @@ export async function checkDatabaseConnection(): Promise<boolean> {
  * Get pool statistics untuk monitoring
  */
 export function getPoolStats() {
+  const poolAny = pool as any;
   return {
-    total: pool.totalCount,
-    idle: pool.idleCount,
-    waiting: pool.waitingCount,
+    total: poolAny.totalCount || 0,
+    idle: poolAny.idleCount || 0,
+    waiting: poolAny.waitingCount || 0,
   };
 }
 
@@ -167,24 +188,13 @@ export async function closePool() {
   }
 }
 
-// Handle process termination
-if (typeof process !== 'undefined') {
-  process.on('beforeExit', async () => {
-    console.log('🛑 Process beforeExit, closing pool...');
-    await closePool();
-  });
-
-  process.on('SIGINT', async () => {
-    console.log('🛑 Received SIGINT, closing database pool...');
-    await closePool();
-    process.exit(0);
-  });
-
-  process.on('SIGTERM', async () => {
-    console.log('🛑 Received SIGTERM, closing database pool...');
-    await closePool();
-    process.exit(0);
-  });
-}
-
-export default pool;
+// Export pool sebagai default dan named
+export { pool };
+export default {
+  pool,
+  query,
+  checkDatabaseConnection,
+  getPoolStats,
+  transaction,
+  closePool
+};

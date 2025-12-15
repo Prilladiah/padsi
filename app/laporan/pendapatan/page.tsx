@@ -1,373 +1,424 @@
-// app/laporan/pendapatan/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
-import Header from '@/components/layout/header';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function LaporanPendapatanPage() {
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 8;
-  
-  // Filter states
-  const [showFilter, setShowFilter] = useState(false);
-  const [filterMetode, setFilterMetode] = useState<string>('all');
-  const [filterUnitBisnis, setFilterUnitBisnis] = useState<string>('all');
-
-  // Reset page saat filter berubah
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filterMetode, filterUnitBisnis]);
-
-  const pendapatanData = [
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Cafe',
-      metodePembayaran: 'Qris',
-      subTotal: 50000
-    },
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Badminton',
-      metodePembayaran: 'Tunai',
-      subTotal: 50000
-    },
-    {
-      tanggal: '01-01-2025',
-      unitBisnis: 'Play Station',
-      metodePembayaran: 'Qris',
-      subTotal: 50000
-    },
-    {
-      tanggal: '02-01-2025',
-      unitBisnis: 'Cafe',
-      metodePembayaran: 'Tunai',
-      subTotal: 50000
-    },
-    {
-      tanggal: '02-01-2025',
-      unitBisnis: 'Badminton',
-      metodePembayaran: 'Qris',
-      subTotal: 50000
-    },
-    {
-      tanggal: '02-01-2025',
-      unitBisnis: 'Play Station',
-      metodePembayaran: 'Tunai',
-      subTotal: 50000
-    },
-    {
-      tanggal: '03-01-2025',
-      unitBisnis: 'Cafe',
-      metodePembayaran: 'Qris',
-      subTotal: 50000
-    },
-    {
-      tanggal: '03-01-2025',
-      unitBisnis: 'Badminton',
-      metodePembayaran: 'Tunai',
-      subTotal: 50000
-    }
-  ];
-
-  // Filter data
-  const filteredData = pendapatanData.filter(item => {
-    const metodeMatch = filterMetode === 'all' || item.metodePembayaran === filterMetode;
-    const unitMatch = filterUnitBisnis === 'all' || item.unitBisnis === filterUnitBisnis;
-    return metodeMatch && unitMatch;
+  const router = useRouter();
+  const [data, setData] = useState<any[]>([]);
+  const [totalPendapatan, setTotalPendapatan] = useState<number>(0);
+  const [uploading, setUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState('');
+  const [uploadError, setUploadError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalRecords: 0,
+    byPaymentMethod: {} as Record<string, number>
   });
 
-  // Get unique values for filter options
-  const uniqueMetode = Array.from(new Set(pendapatanData.map(item => item.metodePembayaran)));
-  const uniqueUnitBisnis = Array.from(new Set(pendapatanData.map(item => item.unitBisnis)));
-
-  const totalPendapatan = filteredData.reduce((sum, item) => sum + item.subTotal, 0);
-
-  // Pagination (menggunakan filteredData)
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentData = filteredData.slice(startIndex, startIndex + itemsPerPage);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount).replace('Rp', 'Rp ');
+  // Format currency
+  const formatCurrency = (amount: number | null | undefined) => {
+    if (amount === null || amount === undefined || isNaN(amount)) {
+      return '0';
+    }
+    return amount.toLocaleString('id-ID');
   };
 
-  // Fungsi untuk download Excel (CSV format yang kompatibel dengan Excel)
-  const downloadExcel = () => {
-    // Header
-    const headers = ['Tanggal', 'Unit Bisnis', 'Metode Pembayaran', 'Sub Total Pendapatan'];
-    
-    // Data rows
-    const rows = filteredData.map(item => [
-      item.tanggal,
-      item.unitBisnis,
-      item.metodePembayaran,
-      item.subTotal
-    ]);
+  // Fetch ALL data dari API
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      console.log("🔄 Loading data from API...");
+      
+      const res = await fetch('/api/laporan/pendapatan', {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      
+      console.log("📡 Response status:", res.status);
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("❌ API Error:", errorText);
+        
+        // Fallback untuk development
+        if (process.env.NODE_ENV === 'development') {
+          console.log("🔄 Using development fallback data");
+          const fallbackData = Array.from({ length: 10 }, (_, i) => ({
+            id: i + 1,
+            tanggal: `2024-0${Math.floor(i/3) + 1}-${(i % 30) + 1}`.replace(/-(\d)$/, '-0$1'),
+            target_date: `2024-0${Math.floor(i/3) + 1}-${(i % 30) + 1}`.replace(/-(\d)$/, '-0$1'),
+            unit_bisnis: 'Badminton',
+            metode_pembayaran: ['QRIS', 'Tunai', 'Transfer'][i % 3],
+            subtotal_pendapatan: 120000,
+            created_at: new Date().toISOString()
+          }));
+          
+          setData(fallbackData);
+          setTotalPendapatan(1200000);
+          setStats({
+            totalRecords: 10,
+            byPaymentMethod: { QRIS: 4, Tunai: 3, Transfer: 3 }
+          });
+          return;
+        }
+        
+        throw new Error(`HTTP ${res.status}: ${errorText}`);
+      }
+      
+      const json = await res.json();
+      console.log("✅ API Response received:", {
+        success: json.success,
+        dataLength: json.data?.length || 0,
+        total: json.total,
+        summary: json.summary
+      });
+      
+      if (json.success) {
+        // Pastikan semua data ditampilkan
+        const allData = json.data || [];
+        console.log(`📊 Setting ${allData.length} records to state`);
+        
+        setData(allData);
+        setTotalPendapatan(json.total || 0);
+        setStats({
+          totalRecords: allData.length,
+          byPaymentMethod: json.summary?.byPaymentMethod || {}
+        });
+      } else {
+        console.error("❌ API returned error:", json.error);
+        setData([]);
+        setTotalPendapatan(0);
+      }
+    } catch (error: any) {
+      console.error("💥 Error loading data:", error.message);
+      setUploadError(`Gagal memuat data: ${error.message}`);
+      setData([]);
+      setTotalPendapatan(0);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Add summary row
-    rows.push([]);
-    rows.push(['', '', 'TOTAL PENDAPATAN:', totalPendapatan]);
-    rows.push(['', '', 'Total Transaksi:', filteredData.length]);
+  useEffect(() => {
+    loadData();
+  }, []);
 
-    // Create CSV content with BOM for Excel UTF-8 support
-    const BOM = '\uFEFF';
-    const csvContent = BOM + [
-      ['LAPORAN PENDAPATAN SANGUKU'].join(','),
-      ['Tanggal Cetak: ' + new Date().toLocaleDateString('id-ID')].join(','),
-      [],
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n');
+  // Upload Excel
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    // Create blob and download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
+    setUploading(true);
+    setUploadError('');
+    setUploadSuccess('');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      console.log("📤 Uploading file:", file.name);
+      
+      const res = await fetch('/api/laporan/pendapatan', {
+        method: 'POST',
+        body: formData
+      });
+
+      console.log("📡 Upload response status:", res.status);
+      
+      const result = await res.json();
+      console.log("📡 Upload response:", result);
+
+      if (res.ok && result.success) {
+        const imported = result.data?.imported || 0;
+        const updated = result.data?.updated || 0;
+        setUploadSuccess(`Berhasil upload: ${imported} data baru, ${updated} diperbarui`);
+        loadData(); // refresh data
+      } else {
+        setUploadError(result.error || 'Gagal upload file');
+      }
+
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      setUploadError(error.message || 'Terjadi kesalahan saat upload');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  // Format tanggal
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return dateString;
+      return date.toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  // Get badge color untuk metode pembayaran
+  const getPaymentMethodColor = (metode: string) => {
+    const method = metode?.toLowerCase() || '';
     
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Laporan-Pendapatan-${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    URL.revokeObjectURL(url);
+    if (method.includes('qris') || method === '0815') {
+      return 'bg-purple-100 text-purple-800';
+    }
+    if (method.includes('tunai') || method.includes('cash')) {
+      return 'bg-green-100 text-green-800';
+    }
+    if (method.includes('transfer')) {
+      return 'bg-blue-100 text-blue-800';
+    }
+    return 'bg-gray-100 text-gray-800';
+  };
+
+  // Handle back
+  const handleBack = () => {
+    router.back();
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      <Header />
-      
-      <div className="p-8">
-        {/* Header Section dengan Total Pendapatan */}
-        <div className="bg-gradient-to-r from-blue-900 to-blue-800 rounded-lg shadow-lg p-6 mb-6">
-          <div className="flex justify-between items-start mb-6">
-            <div className="flex items-center gap-4">
-              <button 
-                onClick={() => window.history.back()}
-                className="text-white hover:bg-blue-600 p-2 rounded-lg transition-colors"
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
+    <div className="p-6 min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-[#123DCA] text-white p-6 rounded-xl flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <button
+          onClick={handleBack}
+          title="Kembali"
+          className="p-1 hover:opacity-80 transition-opacity"
+          >
+            <svg
+             className="w-6 h-6 text-white"
+             fill="none"
+             stroke="currentColor"
+             viewBox="0 0 24 24"
+             >
+              <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2.5}
+              d="M15 19l-7-7 7-7"
+              />
+              </svg>
               </button>
-              <h1 className="text-2xl font-bold text-white">Laporan Pendapatan</h1>
-            </div>
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setShowFilter(!showFilter)}
-                className="px-6 py-2.5 bg-white text-blue-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2 font-medium shadow-md"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                </svg>
-                Filter
-                {(filterMetode !== 'all' || filterUnitBisnis !== 'all') && (
-                  <span className="bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                    {(filterMetode !== 'all' ? 1 : 0) + (filterUnitBisnis !== 'all' ? 1 : 0)}
-                  </span>
-                )}
-              </button>
-              <button 
-                onClick={downloadExcel}
-                className="px-6 py-2.5 bg-white text-blue-600 rounded-lg flex items-center gap-2 font-medium shadow-md"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Download Excel
-              </button>
-            </div>
-          </div>
 
-          {/* Total Pendapatan Card */}
-          <div className="bg-white rounded-lg p-5">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-1">Total Pendapatan</h2>
-                <p className="text-sm text-gray-600">Total keseluruhan pendapatan</p>
-              </div>
-              <div className="text-right">
-                <div className="text-3xl font-bold text-blue-700">
-                  {formatCurrency(totalPendapatan)}
-                </div>
-                <p className="text-sm text-gray-600 mt-1">dari {filteredData.length} Transaksi</p>
-              </div>
-            </div>
+
+          <div>
+            <h1 className="text-2xl font-bold">Laporan Pendapatan</h1>
+            <p className="text-blue-200 text-sm mt-1">Total: {stats.totalRecords} transaksi</p>
           </div>
         </div>
 
-        {/* Filter Panel */}
-        {showFilter && (
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-6 border-l-4 border-blue-600">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+        <div className="flex gap-3">
+          {/* Upload Button */}
+          <label className="cursor-pointer">
+            <div className={`px-6 py-2.5 rounded-lg flex items-center gap-2 font-medium shadow-md transition-colors ${
+              uploading 
+                ? 'bg-gray-400 text-white cursor-not-allowed' 
+                : 'bg-green-500 hover:bg-green-600 text-white'
+            }`}>
+              {uploading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  Upload Excel
+                </>
+              )}
+            </div>
+            <input
+              type="file"
+              className="hidden"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleUpload}
+              disabled={uploading}
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Stats Card */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+        <div className="bg-white shadow p-5 rounded-xl border">
+          <h3 className="text-sm font-medium text-gray-500">Total Pendapatan</h3>
+          <p className="text-2xl font-bold text-[#123DCA] mt-2">
+            Rp {formatCurrency(totalPendapatan)}
+          </p>
+        </div>
+        
+        <div className="bg-white shadow p-5 rounded-xl border">
+          <h3 className="text-sm font-medium text-gray-500">Total Transaksi</h3>
+          <p className="text-2xl font-bold text-gray-800 mt-2">
+            {stats.totalRecords}
+          </p>
+        </div>
+        
+        <div className="bg-white shadow p-5 rounded-xl border">
+          <h3 className="text-sm font-medium text-gray-500">Rata-rata per Transaksi</h3>
+          <p className="text-2xl font-bold text-gray-800 mt-2">
+            Rp {formatCurrency(stats.totalRecords > 0 ? totalPendapatan / stats.totalRecords : 0)}
+          </p>
+        </div>
+        
+        <div className="bg-white shadow p-5 rounded-xl border">
+          <h3 className="text-sm font-medium text-gray-500">Status Data</h3>
+          <p className="text-lg font-semibold text-green-600 mt-2">
+            {loading ? 'Memuat...' : data.length === stats.totalRecords ? 'Sinkron' : 'Tidak Sinkron'}
+          </p>
+          <p className="text-sm text-gray-500 mt-1">
+            {data.length} dari {stats.totalRecords} ditampilkan
+          </p>
+        </div>
+      </div>
+
+      {/* Payment Method Stats */}
+      {Object.keys(stats.byPaymentMethod).length > 0 && (
+        <div className="bg-white shadow p-5 mt-4 rounded-xl border">
+          <h3 className="font-medium text-gray-700 mb-3">Metode Pembayaran</h3>
+          <div className="flex flex-wrap gap-3">
+            {Object.entries(stats.byPaymentMethod).map(([method, count]) => (
+              <div key={method} className={`px-4 py-2 rounded-lg ${getPaymentMethodColor(method)}`}>
+                <span className="font-semibold">{method}</span>
+                <span className="ml-2 text-sm opacity-75">{count} transaksi</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Upload Status */}
+      {(uploadSuccess || uploadError) && (
+        <div className={`mt-4 p-4 rounded-lg ${uploadSuccess ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+          <p className={`flex items-center gap-2 ${uploadSuccess ? 'text-green-700' : 'text-red-600'}`}>
+            {uploadSuccess ? (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Filter Data
-              </h3>
-              <button 
-                onClick={() => {
-                  setFilterMetode('all');
-                  setFilterUnitBisnis('all');
-                }}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Reset Filter
-              </button>
+                {uploadSuccess}
+              </>
+            ) : (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {uploadError}
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading ? (
+        <div className="bg-white rounded-lg shadow p-8 mt-6 text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-gray-600">Memuat data pendapatan...</p>
+          <p className="text-sm text-gray-500 mt-2">Mengambil {stats.totalRecords} records dari database</p>
+        </div>
+      ) : data.length === 0 ? (
+        <div className="bg-white rounded-lg shadow p-8 mt-6 text-center">
+          <div className="text-6xl mb-4">📊</div>
+          <p className="text-lg font-medium text-gray-600">Belum ada data pendapatan</p>
+          <p className="text-sm text-gray-500 mt-2">
+            Upload file Excel untuk mulai menambahkan data
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Tabel - TAMPILKAN SEMUA DATA */}
+          <div className="mt-6 bg-white rounded-xl shadow overflow-hidden border">
+            <div className="p-4 border-b bg-gray-50">
+              <div className="flex justify-between items-center">
+                <h3 className="font-medium text-gray-700">
+                  Daftar Transaksi ({data.length} dari {stats.totalRecords})
+                </h3>
+                <button 
+                  onClick={loadData}
+                  className="px-3 py-1 text-sm bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                >
+                  Refresh Data
+                </button>
+              </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Filter Metode Pembayaran */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Metode Pembayaran
-                </label>
-                <select
-                  value={filterMetode}
-                  onChange={(e) => setFilterMetode(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">Semua Metode</option>
-                  {uniqueMetode.map(metode => (
-                    <option key={metode} value={metode}>{metode}</option>
-                  ))}
-                </select>
-              </div>
+            <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+              <table className="w-full text-left">
+                <thead className="bg-[#123DCA] text-white sticky top-0">
+                  <tr>
+                    <th className="p-3 font-bold">NO</th>
+                    <th className="p-3 font-bold">TANGGAL</th>
+                    <th className="p-3 font-bold">UNIT BISNIS</th>
+                    <th className="p-3 font-bold">METODE PEMBAYARAN</th>
+                    <th className="p-3 font-bold">PENDAPATAN</th>
+                  </tr>
+                </thead>
 
-              {/* Filter Unit Bisnis */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Unit Bisnis
-                </label>
-                <select
-                  value={filterUnitBisnis}
-                  onChange={(e) => setFilterUnitBisnis(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="all">Semua Unit</option>
-                  {uniqueUnitBisnis.map(unit => (
-                    <option key={unit} value={unit}>{unit}</option>
+                <tbody>
+                  {data.map((row, idx) => (
+                    <tr 
+                      key={row.id || idx} 
+                      className="border-b border-gray-200 hover:bg-gray-50 transition-colors"
+                    >
+                      <td className="p-3 text-sm text-gray-900">{idx + 1}</td>
+                      <td className="p-3 text-sm text-gray-900">
+                        {formatDate(row.tanggal || row.target_date || '')}
+                      </td>
+                      <td className="p-3 text-sm font-medium text-blue-700">
+                        {row.unit_bisnis || 'N/A'}
+                      </td>
+                      <td className="p-3 text-sm">
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getPaymentMethodColor(row.metode_pembayaran)}`}>
+                          {row.metode_pembayaran || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-sm font-semibold text-gray-900">
+                        Rp {formatCurrency(Number(row.subtotal_pendapatan))}
+                      </td>
+                    </tr>
                   ))}
-                </select>
-              </div>
+                </tbody>
+              </table>
             </div>
+          </div>
 
-            {/* Filter Info */}
-            <div className="mt-4 pt-4 border-t border-gray-200">
+          {/* Footer Total */}
+          <div className="bg-blue-50 p-4 flex justify-between items-center mt-2 rounded-lg border">
+            <div>
               <p className="text-sm text-gray-600">
-                Menampilkan <span className="font-bold text-blue-600">{filteredData.length}</span> dari {pendapatanData.length} transaksi
+                Menampilkan {data.length} dari {stats.totalRecords} transaksi
+              </p>
+              {data.length < stats.totalRecords && (
+                <p className="text-sm text-amber-600 mt-1">
+                  ⚠️ Beberapa data mungkin tidak ditampilkan
+                </p>
+              )}
+            </div>
+            <div className="text-right">
+              <p className="font-bold text-lg">
+                TOTAL PENDAPATAN: &nbsp;
+                <span className="text-[#123DCA]">
+                  Rp {formatCurrency(totalPendapatan)}
+                </span>
               </p>
             </div>
           </div>
-        )}
-
-        {/* Kondisi jika tidak ada data sesuai filter */}
-        {filteredData.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
-            <div className="text-6xl mb-4">📊</div>
-            <p className="text-lg font-medium text-gray-600">Tidak ada data sesuai filter</p>
-            <p className="text-sm text-gray-500 mt-2">
-              Coba ubah filter atau reset untuk melihat semua data
-            </p>
-            <button
-              onClick={() => {
-                setFilterMetode('all');
-                setFilterUnitBisnis('all');
-              }}
-              className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Reset Filter
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* Tabel Pendapatan */}
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-blue-900">
-                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
-                        Tanggal
-                      </th>
-                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
-                        Unit Bisnis
-                      </th>
-                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
-                        Metode Pembayaran
-                      </th>
-                      <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wide">
-                        Sub Total Pendapatan
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white">
-                    {currentData.map((item, index) => (
-                      <tr key={index} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {item.tanggal}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-medium text-blue-700">
-                          {item.unitBisnis}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            item.metodePembayaran === 'Qris' 
-                              ? 'bg-purple-100 text-purple-800' 
-                              : 'bg-green-100 text-green-800'
-                          }`}>
-                            {item.metodePembayaran}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">
-                          {formatCurrency(item.subTotal)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Pagination */}
-              <div className="bg-gray-50 px-6 py-4 flex justify-between items-center border-t border-gray-200">
-                <button
-                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  disabled={currentPage === 1}
-                  className={`text-sm font-medium transition-colors ${
-                    currentPage === 1 
-                      ? 'text-gray-400 cursor-not-allowed' 
-                      : 'text-blue-700 hover:text-blue-800'
-                  }`}
-                >
-                  &lt; Prev
-                </button>
-                <span className="text-sm text-gray-600">
-                  {currentPage}/{totalPages}
-                </span>
-                <button
-                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                  className={`text-sm font-medium transition-colors ${
-                    currentPage === totalPages 
-                      ? 'text-gray-400 cursor-not-allowed' 
-                      : 'text-blue-700 hover:text-blue-800'
-                  }`}
-                >
-                  Next &gt;
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

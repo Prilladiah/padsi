@@ -141,7 +141,7 @@ export default function ItemTable({ items, onAddItem, onDeleteItem, onUpdateItem
             />
             <input
               type="text"
-              placeholder="Satuan"
+              placeholder="Unit"
               value={newItem.unit}
               onChange={(e) => setNewItem({...newItem, unit: e.target.value})}
               className="px-3 py-2 border rounded"
@@ -184,7 +184,7 @@ export default function ItemTable({ items, onAddItem, onDeleteItem, onUpdateItem
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NAMA BARANG</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SUPPLIER</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">JUMLAH</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SATUAN</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">UNIT</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HARGA</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">TANGGAL MASUK</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">STATUS</th>
